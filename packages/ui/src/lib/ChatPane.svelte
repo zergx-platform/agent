@@ -3,12 +3,11 @@
   import { api, type Session } from '$lib/api'
   import { parseLoose } from '@rucoder-agent/schema'
   import { markdown } from '$lib/markdown'
-  import { Send, Square } from '@lucide/svelte'
+  import { Send, Square, Settings2, Undo2, GitFork, Mailbox } from '@lucide/svelte'
+  import SettingsPanel from '$lib/SettingsPanel.svelte'
+  import MailboxPanel from '$lib/MailboxPanel.svelte'
 
-  let {
-    active,
-    onrefresh,
-  }: { active: Session; onrefresh: () => Promise<void> } = $props()
+  let { active, onrefresh }: { active: Session; onrefresh: () => void } = $props()
 
   type Msg = { id: string; role: string; content: string }
   let messages: Msg[] = $state([])
@@ -16,6 +15,8 @@
   let streaming = $state(false)
   let assistantBuf = $state('')
   let error = $state('')
+  let showSettings = $state(false)
+  let showMailbox = $state(false)
 
   let es: EventSource | null = null
 
@@ -38,17 +39,14 @@
     es.onmessage = ev => {
       parseLoose(ev.data).match(
         value => {
-          const data = value as {
-            event?: string
-            params?: Record<string, unknown>
-          }
+          const data = value as { event?: string; params?: Record<string, unknown> }
           const p = data.params ?? {}
           if (data.event === 'text-delta' && typeof p.text === 'string') {
             assistantBuf += p.text
           } else if (data.event === 'turn-complete') {
             flushAssistant()
             streaming = false
-            void onrefresh()
+            onrefresh()
             stopStream()
           } else if (data.event === 'error') {
             error = typeof p.message === 'string' ? p.message : 'turn error'
@@ -82,10 +80,7 @@
   function send() {
     const text = input.trim()
     if (text === '' || streaming) return
-    messages = [
-      ...messages,
-      { id: `local-${Date.now()}`, role: 'user', content: text },
-    ]
+    messages = [...messages, { id: `local-${Date.now()}`, role: 'user', content: text }]
     input = ''
     assistantBuf = ''
     streaming = true
@@ -105,6 +100,17 @@
     flushAssistant()
     void api.interrupt(active.name).match(
       () => loadHistory(),
+      e => {
+        error = e
+      },
+    )
+  }
+
+  function undo() {
+    void api.undo(active.name).match(
+      r => {
+        if (r.undone) loadHistory()
+      },
       e => {
         error = e
       },
@@ -131,6 +137,28 @@
 <div class="h-full flex flex-col">
   <header class="shrink-0 px-4 py-2 border-b border-border flex items-center gap-2 text-sm">
     <span class="font-medium">{active.name}</span>
+    <div class="flex-1"></div>
+    <button
+      class="text-muted hover:text-fg p-1"
+      onclick={() => (showMailbox = true)}
+      title="Mailbox"
+    >
+      <Mailbox class="size-4" />
+    </button>
+    <button
+      class="text-muted hover:text-fg p-1"
+      onclick={undo}
+      title="Undo"
+    >
+      <Undo2 class="size-4" />
+    </button>
+    <button
+      class="text-muted hover:text-fg p-1"
+      onclick={() => (showSettings = true)}
+      title="Settings"
+    >
+      <Settings2 class="size-4" />
+    </button>
   </header>
 
   <div class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4" use:scrollToBottom={messages.length + (assistantBuf.length > 0 ? 1 : 0)}>
@@ -163,6 +191,9 @@
   </div>
 
   <footer class="shrink-0 p-3 border-t border-border">
+    <div class="mb-2">
+      <SettingsPanel {active} onrefresh={onrefresh} />
+    </div>
     {#if error}
       <div class="text-red-400 text-xs mb-2">{error}</div>
     {/if}
@@ -196,3 +227,7 @@
     </div>
   </footer>
 </div>
+
+{#if showMailbox}
+  <MailboxPanel name={active.name} onclose={() => (showMailbox = false)} />
+{/if}

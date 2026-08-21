@@ -163,6 +163,104 @@ export const api = {
       z.object({ models: z.array(z.string()) }),
       'list models',
     ).map(r => r.models),
+
+  setSessionModel: (sid: string, model: string) =>
+    request(
+      () =>
+        client.sessions[':id'].model.$post(
+          { json: { model } },
+          { param: { id: sid } },
+        ),
+      z.object({ model: z.string() }),
+      'set model',
+    ),
+
+  updateSettings: (sid: string, patch: { model?: string; preset?: string }) =>
+    request(
+      () =>
+        client.sessions[':id'].settings.$patch(
+          { json: patch },
+          { param: { id: sid } },
+        ),
+      z.object({ session: sessionJsonSchema }),
+      'update settings',
+    ),
+
+  listPresets: () =>
+    request(
+      () => client.presets.$get(),
+      z.array(
+        z.object({
+          id: z.string(),
+          system_prompt: z.string(),
+          tools: z.string(),
+          max_turns: z.number(),
+        }),
+      ),
+      'list presets',
+    ),
+
+  upsertPreset: (p: {
+    id: string
+    system_prompt?: string
+    tools?: unknown
+    max_turns?: number
+  }) =>
+    request(
+      () => client.presets.$post({ json: p }),
+      z.object({ ok: z.boolean() }),
+      'upsert preset',
+    ),
+
+  deletePreset: (id: string) =>
+    request(
+      () => client.presets[':id'].$delete(undefined, { param: { id } }),
+      z.object({ ok: z.boolean() }),
+      'delete preset',
+    ),
+
+  listMailbox: (sid: string) =>
+    request(
+      () => client.sessions[':id'].mailbox.$get({}, { param: { id: sid } }),
+      z.object({ entries: z.array(z.unknown()) }),
+      'list mailbox',
+    ).map(r => r.entries),
+
+  fork: (sid: string, name: string) =>
+    request(
+      () =>
+        client.sessions[':id'].fork.$post(
+          { json: { name } },
+          { param: { id: sid } },
+        ),
+      z.object({ ok: z.boolean(), session_name: z.string() }),
+      'fork',
+    ),
+
+  rename: (sid: string, name: string) =>
+    request(
+      () =>
+        client.sessions[':id'].rename.$post(
+          { json: { name } },
+          { param: { id: sid } },
+        ),
+      z.object({ ok: z.boolean(), session_name: z.string() }),
+      'rename',
+    ),
+
+  undo: (sid: string) =>
+    request(
+      () => client.sessions[':id'].undo.$post({}, { param: { id: sid } }),
+      z.object({ ok: z.boolean(), undone: z.boolean() }),
+      'undo',
+    ),
+
+  catalogProviders: () =>
+    request(
+      () => client.providers.catalog.$get(),
+      z.object({ catalog: z.record(z.string(), z.unknown()) }),
+      'catalog providers',
+    ).map(r => r.catalog),
 }
 
 export type { SessionJson }

@@ -4,11 +4,13 @@
   import SessionList from '$lib/SessionList.svelte'
   import ChatPane from '$lib/ChatPane.svelte'
   import ProviderManager from '$lib/ProviderManager.svelte'
-  import { Settings } from '@lucide/svelte'
+  import PresetManager from '$lib/PresetManager.svelte'
+  import { Settings, Wrench } from '@lucide/svelte'
 
   let sessions: Session[] = $state([])
   let activeName: string | null = $state(null)
   let showProviders = $state(false)
+  let showPresets = $state(false)
   let name = $state('')
   let creating = $state(false)
   let error = $state('')
@@ -56,13 +58,22 @@
     <div class="p-3 border-b border-border">
       <div class="flex items-center justify-between">
         <h1 class="text-sm font-semibold">rucoder-agent</h1>
-        <button
-          class="text-muted hover:text-fg p-1 rounded"
-          onclick={() => (showProviders = true)}
-          title="Providers"
-        >
-          <Settings class="size-4" />
-        </button>
+        <div class="flex gap-1">
+          <button
+            class="text-muted hover:text-fg p-1 rounded"
+            onclick={() => (showPresets = true)}
+            title="Presets"
+          >
+            <Wrench class="size-4" />
+          </button>
+          <button
+            class="text-muted hover:text-fg p-1 rounded"
+            onclick={() => (showProviders = true)}
+            title="Providers"
+          >
+            <Settings class="size-4" />
+          </button>
+        </div>
       </div>
 
       <div class="mt-3 flex flex-col gap-2">
@@ -94,6 +105,10 @@
 
   {#if showProviders}
     <ProviderManager onclose={() => (showProviders = false)} />
+  {/if}
+
+  {#if showPresets}
+    <PresetManager onclose={() => (showPresets = false)} />
   {/if}
 </div>
 

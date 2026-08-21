@@ -10,6 +10,7 @@ import {
   LlmRegistry,
   loadConfig,
   Mailbox,
+  refreshModelsDev,
   runSessionTurn,
   watchMailboxWake,
 } from '@rucoder-agent/agent'
@@ -79,6 +80,13 @@ async function main(): Promise<void> {
   // Watch every session's mailbox wake wildcard so this replica can claim and
   // run work for any session — the horizontal scale-out trigger.
   const stopWake = watchMailboxWake(deps)
+
+  // Populate the models.dev catalog cache once at startup (30min TTL); a
+  // failing fetch is non-fatal — the catalog is a prefill convenience.
+  void refreshModelsDev(bus).then(
+    () => {},
+    e => console.warn(`[server] ${e}`),
+  )
 
   const server = serve({ fetch: app.fetch, port: config.port }, info => {
     console.log(

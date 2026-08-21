@@ -239,6 +239,23 @@ export interface AppRoutes {
       interrupt: {
         $post: () => Promise<{ interrupted: boolean }>
       }
+      model: {
+        $post: (input: { json: ModelBody }) => Promise<{ model: string }>
+      }
+      settings: {
+        $patch: (input: {
+          json: SessionSettingsBody
+        }) => Promise<{ session: SessionJson }>
+      }
+      mailbox: {
+        $get: () => Promise<{ entries: unknown[] }>
+      }
+      undo: {
+        $post: (input: { json?: UndoBody }) => Promise<{
+          ok: boolean
+          undone: boolean
+        }>
+      }
       fork: {
         $post: (input: { json: ForkBody }) => Promise<{
           ok: boolean
@@ -253,12 +270,22 @@ export interface AppRoutes {
       }
     }
   }
+  presets: {
+    $get: () => Promise<Array<PresetRow>>
+    $post: (input: { json: PresetBody }) => Promise<{ ok: boolean }>
+    ':id': {
+      $delete: () => Promise<{ ok: boolean }>
+    }
+  }
   providers: {
     $get: () => Promise<{ providers: Record<string, ProviderJson> }>
     $post: (input: { json: ProviderBody }) => Promise<{
       ok: boolean
       provider_id: string
     }>
+    catalog: {
+      $get: () => Promise<{ catalog: Record<string, unknown> }>
+    }
     test: {
       $post: (input: {
         json: ProviderTestBody

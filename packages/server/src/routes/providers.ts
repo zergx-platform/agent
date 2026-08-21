@@ -43,6 +43,14 @@ providerRoutes.get('/', async c => {
   return c.json({ providers })
 })
 
+/** GET /providers/catalog — prefilled provider list from the models.dev cache. */
+providerRoutes.get('/catalog', async c => {
+  const { bus } = c.get('deps')
+  const result = await bus.getModelsDev()
+  if (result.isErr()) return c.json({ ok: false, error: result.error }, 500)
+  return c.json({ catalog: result.value ?? {} })
+})
+
 providerRoutes.post('/', zValidator('json', ProviderBodySchema), async c => {
   const deps = c.get('deps')
   const b = c.req.valid('json')
