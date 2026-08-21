@@ -1,21 +1,19 @@
-import type {
-  AppRoutes,
-  CreateSessionBody,
-  SessionJson,
-} from '@rucoder-agent/schema'
+import type { CreateSessionBody, SessionJson } from '@rucoder-agent/schema'
 import {
   CatalogProvidersSchema,
   ProviderJsonSchema,
   SessionRowSchema,
 } from '@rucoder-agent/schema'
+import type { AppType } from '@rucoder-agent/server'
 import { hc } from 'hono/client'
 import { err, ok, type Result, ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 
 /**
- * Type-safe Hono RPC client. Paths and request bodies are fully inferred from
- * `AppRoutes` (declared in @rucoder-agent/schema); every response body is
- * validated at runtime against the shared zod schemas (single source of truth).
+ * Type-safe Hono RPC client. The client type is derived from the real server
+ * router (`AppType = typeof app` in @rucoder-agent/server) so paths, `:id`
+ * params, request bodies and response shapes are all inferred. Every response
+ * body is additionally validated at runtime against the shared zod schemas.
  *
  * Every network call returns a `neverthrow` Result — no try/catch/throw.
  */
@@ -23,7 +21,7 @@ import { z } from 'zod'
 const origin =
   typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
 
-export const client = hc<AppRoutes>(`${origin}/api/v1`)
+export const client = hc<AppType>(`${origin}/api/v1`)
 
 const sessionJsonSchema = SessionRowSchema.extend({
   base_image: z.null(),
@@ -87,7 +85,7 @@ export const api = {
 
   listMessages: (sid: string) =>
     request(
-      () => client.sessions[':id'].messages.$get({}, { param: { id: sid } }),
+      () => client.sessions[':id'].messages.$get({ param: { id: sid } }),
       z.object({
         messages: z.array(
           z.object({
@@ -104,23 +102,23 @@ export const api = {
   prompt: (sid: string, prompt: string) =>
     request(
       () =>
-        client.sessions[':id'].prompt.$post(
-          { json: { prompt } },
-          { param: { id: sid } },
-        ),
+        client.sessions[':id'].prompt.$post({
+          json: { prompt },
+          param: { id: sid },
+        }),
       z.object({ ok: z.boolean() }),
       'prompt',
     ),
 
   interrupt: (sid: string) =>
     request(
-      () => client.sessions[':id'].interrupt.$post({}, { param: { id: sid } }),
+      () => client.sessions[':id'].interrupt.$post({ param: { id: sid } }),
       z.object({ interrupted: z.boolean() }),
       'interrupt',
     ),
 
   sessionsStreamUrl: (sid: string) =>
-    `/api/v1/sessions/${encodeURIComponent(sid)}/stream`,
+    client.sessions[':id'].stream.$url({ param: { id: sid } }).toString(),
 
   listProviders: () =>
     request(
@@ -144,7 +142,7 @@ export const api = {
 
   deleteProvider: (pid: string) =>
     request(
-      () => client.providers[':id'].$delete(undefined, { param: { id: pid } }),
+      () => client.providers[':id'].$delete({ param: { id: pid } }),
       z
         .object({ deleted: z.boolean().optional() })
         .or(z.object({ ok: z.boolean() })),
@@ -172,10 +170,10 @@ export const api = {
   setSessionModel: (sid: string, model: string) =>
     request(
       () =>
-        client.sessions[':id'].model.$post(
-          { json: { model } },
-          { param: { id: sid } },
-        ),
+        client.sessions[':id'].model.$post({
+          json: { model },
+          param: { id: sid },
+        }),
       z.object({ model: z.string() }),
       'set model',
     ),
@@ -183,10 +181,10 @@ export const api = {
   updateSettings: (sid: string, patch: { model?: string; preset?: string }) =>
     request(
       () =>
-        client.sessions[':id'].settings.$patch(
-          { json: patch },
-          { param: { id: sid } },
-        ),
+        client.sessions[':id'].settings.$patch({
+          json: patch,
+          param: { id: sid },
+        }),
       z.object({ session: sessionJsonSchema }),
       'update settings',
     ),
@@ -219,14 +217,14 @@ export const api = {
 
   deletePreset: (id: string) =>
     request(
-      () => client.presets[':id'].$delete(undefined, { param: { id } }),
+      () => client.presets[':id'].$delete({ param: { id } }),
       z.object({ ok: z.boolean() }),
       'delete preset',
     ),
 
   listMailbox: (sid: string) =>
     request(
-      () => client.sessions[':id'].mailbox.$get({}, { param: { id: sid } }),
+      () => client.sessions[':id'].mailbox.$get({ param: { id: sid } }),
       z.object({ entries: z.array(z.unknown()) }),
       'list mailbox',
     ).map(r => r.entries),
@@ -234,10 +232,10 @@ export const api = {
   fork: (sid: string, name: string) =>
     request(
       () =>
-        client.sessions[':id'].fork.$post(
-          { json: { name } },
-          { param: { id: sid } },
-        ),
+        client.sessions[':id'].fork.$post({
+          json: { name },
+          param: { id: sid },
+        }),
       z.object({ ok: z.boolean(), session_name: z.string() }),
       'fork',
     ),
@@ -245,10 +243,10 @@ export const api = {
   rename: (sid: string, name: string) =>
     request(
       () =>
-        client.sessions[':id'].rename.$post(
-          { json: { name } },
-          { param: { id: sid } },
-        ),
+        client.sessions[':id'].rename.$post({
+          json: { name },
+          param: { id: sid },
+        }),
       z.object({ ok: z.boolean(), session_name: z.string() }),
       'rename',
     ),
@@ -256,10 +254,10 @@ export const api = {
   undo: (sid: string, messageId?: string) =>
     request(
       () =>
-        client.sessions[':id'].undo.$post(
-          messageId ? { json: { message_id: messageId } } : { json: {} },
-          { param: { id: sid } },
-        ),
+        client.sessions[':id'].undo.$post({
+          json: messageId ? { message_id: messageId } : {},
+          param: { id: sid },
+        }),
       z.object({ ok: z.boolean(), undone: z.boolean() }),
       'undo',
     ),

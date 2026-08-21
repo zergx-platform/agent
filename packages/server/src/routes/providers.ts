@@ -33,59 +33,53 @@ function providerToJson(p: {
 }
 
 export const providerRoutes = new Hono<AppEnv>()
-
-providerRoutes.get('/', async c => {
-  const { db } = c.get('deps')
-  const r = await Providers.list(db)
-  if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
-  const providers: Record<string, unknown> = {}
-  for (const p of r.value) providers[p.provider_id] = providerToJson(p)
-  return c.json({ providers })
-})
-
-/** GET /providers/catalog — prefilled provider list from the models.dev cache. */
-providerRoutes.get('/catalog', async c => {
-  const { bus } = c.get('deps')
-  const result = await bus.getModelsDev()
-  if (result.isErr()) return c.json({ ok: false, error: result.error }, 500)
-  return c.json({ catalog: result.value ?? {} })
-})
-
-providerRoutes.post('/', zValidator('json', ProviderBodySchema), async c => {
-  const deps = c.get('deps')
-  const b = c.req.valid('json')
-
-  const valid = validateApiType(b.api_type)
-  if (valid.isErr()) return c.json({ ok: false, error: valid.error }, 400)
-  if (!b.base_url.startsWith('http://') && !b.base_url.startsWith('https://')) {
-    return c.json({ ok: false, error: 'base_url must be http(s)' }, 400)
-  }
-
-  const r = await Providers.upsert(deps.db, {
-    providerId: b.provider_id,
-    apiType: b.api_type,
-    baseUrl: b.base_url,
-    apiKey: b.api_key ?? '',
-    headers: b.headers ?? null,
-    models: b.models ?? [],
+  .get('/', async c => {
+    const { db } = c.get('deps')
+    const r = await Providers.list(db)
+    if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
+    const providers: Record<string, unknown> = {}
+    for (const p of r.value) providers[p.provider_id] = providerToJson(p)
+    return c.json({ providers })
   })
-  if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
-  deps.llm.invalidate()
-  return c.json({ ok: true, provider_id: b.provider_id })
-})
+  .get('/catalog', async c => {
+    const { bus } = c.get('deps')
+    const result = await bus.getModelsDev()
+    if (result.isErr()) return c.json({ ok: false, error: result.error }, 500)
+    return c.json({ catalog: result.value ?? {} })
+  })
+  .post('/', zValidator('json', ProviderBodySchema), async c => {
+    const deps = c.get('deps')
+    const b = c.req.valid('json')
 
-providerRoutes.delete('/:id', async c => {
-  const deps = c.get('deps')
-  const r = await Providers.delete(deps.db, c.req.param('id'))
-  if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
-  deps.llm.invalidate()
-  return c.json({ deleted: true })
-})
+    const valid = validateApiType(b.api_type)
+    if (valid.isErr()) return c.json({ ok: false, error: valid.error }, 400)
+    if (
+      !b.base_url.startsWith('http://') &&
+      !b.base_url.startsWith('https://')
+    ) {
+      return c.json({ ok: false, error: 'base_url must be http(s)' }, 400)
+    }
 
-providerRoutes.post(
-  '/test',
-  zValidator('json', ProviderTestBodySchema),
-  async c => {
+    const r = await Providers.upsert(deps.db, {
+      providerId: b.provider_id,
+      apiType: b.api_type,
+      baseUrl: b.base_url,
+      apiKey: b.api_key ?? '',
+      headers: b.headers ?? null,
+      models: b.models ?? [],
+    })
+    if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
+    deps.llm.invalidate()
+    return c.json({ ok: true, provider_id: b.provider_id })
+  })
+  .delete('/:id', async c => {
+    const deps = c.get('deps')
+    const r = await Providers.delete(deps.db, c.req.param('id'))
+    if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
+    deps.llm.invalidate()
+    return c.json({ deleted: true })
+  })
+  .post('/test', zValidator('json', ProviderTestBodySchema), async c => {
     c.get('deps')
     const b = c.req.valid('json')
     const url = `${b.base_url.replace(/\/$/, '')}/models`
@@ -114,5 +108,4 @@ providerRoutes.post(
       return c.json({ ok: false, error: body.error })
     }
     return c.json({ ok: true, models: body.value.data ?? null })
-  },
-)
+  })

@@ -208,10 +208,9 @@ export interface ApiErrorBody {
 
 // ---- typed API contract ----------------
 //
-// The UI builds a type-safe Hono client via `hc<AppRoutes>()` using this
-// hand-written structural contract, so it does NOT depend on
-// @rucoder-agent/server (only on @rucoder-agent/schema). The server's real
-// router is type-checked against this contract via `satisfies`.
+// The single source of truth for the typed API surface is the server router:
+// the UI derives its Hono client with `hc<AppType>()` from
+// @rucoder-agent/server (`AppType = typeof app`). No hand-written contract.
 
 export type SessionJson = SessionRow & { base_image: null; unread: number }
 
@@ -241,87 +240,3 @@ export const CatalogProvidersSchema = z.record(
   CatalogProviderSchema,
 )
 export type CatalogProviders = z.infer<typeof CatalogProvidersSchema>
-
-export interface AppRoutes {
-  sessions: {
-    $get: () => Promise<{ sessions: SessionJson[] }>
-    $post: (input: { json: CreateSessionBody }) => Promise<{
-      ok: boolean
-      session_name: string
-    }>
-    ':id': {
-      $get: () => Promise<{ session: SessionJson }>
-      $delete: () => Promise<{ ok: boolean }>
-      messages: {
-        $get: () => Promise<{
-          messages: Array<{
-            id: string
-            role: string
-            content: string
-            created_at: string
-          }>
-        }>
-      }
-      prompt: {
-        $post: (input: { json: PromptBody }) => Promise<{ ok: boolean }>
-      }
-      interrupt: {
-        $post: () => Promise<{ interrupted: boolean }>
-      }
-      model: {
-        $post: (input: { json: ModelBody }) => Promise<{ model: string }>
-      }
-      settings: {
-        $patch: (input: {
-          json: SessionSettingsBody
-        }) => Promise<{ session: SessionJson }>
-      }
-      mailbox: {
-        $get: () => Promise<{ entries: unknown[] }>
-      }
-      undo: {
-        $post: (input: { json?: UndoBody }) => Promise<{
-          ok: boolean
-          undone: boolean
-        }>
-      }
-      fork: {
-        $post: (input: { json: ForkBody }) => Promise<{
-          ok: boolean
-          session_name: string
-        }>
-      }
-      rename: {
-        $post: (input: { json: RenameBody }) => Promise<{
-          ok: boolean
-          session_name: string
-        }>
-      }
-    }
-  }
-  presets: {
-    $get: () => Promise<Array<PresetRow>>
-    $post: (input: { json: PresetBody }) => Promise<{ ok: boolean }>
-    ':id': {
-      $delete: () => Promise<{ ok: boolean }>
-    }
-  }
-  providers: {
-    $get: () => Promise<{ providers: Record<string, ProviderJson> }>
-    $post: (input: { json: ProviderBody }) => Promise<{
-      ok: boolean
-      provider_id: string
-    }>
-    catalog: {
-      $get: () => Promise<{ catalog: CatalogProviders }>
-    }
-    test: {
-      $post: (input: {
-        json: ProviderTestBody
-      }) => Promise<{ ok: boolean; models?: unknown; error?: string }>
-    }
-  }
-  models: {
-    $get: () => Promise<{ models: string[] }>
-  }
-}

@@ -51,103 +51,6 @@ function triggerClaim(deps: AgentDeps, sid: string): void {
   )
 }
 
-export const sessionRoutes = new Hono<AppEnv>()
-
-sessionRoutes.get('/', async c => {
-  const { db } = c.get('deps')
-  const r = await Sessions.list(db)
-  return r.isErr()
-    ? err500(c, r.error)
-    : c.json({ sessions: r.value.map(sessionToJson) })
-})
-
-sessionRoutes.post(
-  '/',
-  zValidator('json', CreateSessionBodySchema),
-  async c => {
-    const { db } = c.get('deps')
-    const b = c.req.valid('json')
-    const exists = await Sessions.exists(db, b.name)
-    if (exists.isErr()) return err500(c, exists.error)
-    if (exists.value) {
-      return c.json({ ok: false, error: 'Session already exists' }, 409)
-    }
-    const name = await Sessions.create(db, b)
-    return name.isErr()
-      ? err500(c, name.error)
-      : c.json({ ok: true, session_name: name.value })
-  },
-)
-
-sessionRoutes.get('/:id', async c => {
-  const { db } = c.get('deps')
-  const r = await Sessions.get(db, c.req.param('id'))
-  if (r.isErr()) return err500(c, r.error)
-  return r.value === null
-    ? c.json({ ok: false, error: 'session not found' }, 404)
-    : c.json({ session: sessionToJson(r.value) })
-})
-
-sessionRoutes.delete('/:id', async c => {
-  const { db } = c.get('deps')
-  const id = c.req.param('id')
-  interruptRun(id)
-  const r = await Sessions.delete(db, id)
-  return r.isErr() ? err500(c, r.error) : c.json({ ok: true })
-})
-
-sessionRoutes.get('/:id/messages', async c => {
-  const { db } = c.get('deps')
-  const sid = c.req.param('id')
-  const limit = Number.parseInt(c.req.query('limit') ?? '50', 10)
-  const before = c.req.query('before') ?? null
-  const tipRes = await Sessions.tip(db, sid)
-  const tipId = tipRes.isErr() ? null : tipRes.value
-  const r = await Messages.chain(db, tipId, limit, before)
-  return r.isErr() ? err500(c, r.error) : c.json({ messages: r.value })
-})
-
-sessionRoutes.post(
-  '/:id/prompt',
-  zValidator('json', PromptBodySchema),
-  async c => {
-    const deps = c.get('deps')
-    const sid = c.req.param('id')
-    const { prompt } = c.req.valid('json')
-
-    const session = await Sessions.get(deps.db, sid)
-    if (session.isErr()) return err500(c, session.error)
-    if (session.value === null) {
-      return c.json({ ok: false, error: 'session not found' }, 404)
-    }
-
-    // Persist the user message first (chained onto the tip) so the turn loop
-    // never runs against a history missing the prompt.
-    const tipRes = await Sessions.tip(deps.db, sid)
-    const tipId = tipRes.isErr() ? null : tipRes.value
-    const insert = await Messages.insert(deps.db, 'user', prompt, tipId)
-    if (insert.isErr()) return err500(c, insert.error)
-    await Sessions.setTip(deps.db, sid, insert.value)
-
-    const enq = await Mailbox.enqueue(deps.db, sid, 'user_prompt', {
-      text: prompt,
-    })
-    if (enq.isErr()) return err500(c, enq.error)
-
-    // Wake any replica via the durable mailbox subject. Every replica tries a
-    // claim; exactly one wins and drains the mailbox (idempotent, reentrant).
-    void deps.bus
-      .publishStream(mailboxSubject(sid), {
-        type: 'user_prompt',
-        session_name: sid,
-      })
-      .then(() => undefined)
-
-    void triggerClaim(deps, sid)
-    return c.json({ ok: true })
-  },
-)
-
 // ---- SSE: durable JetStream replay + live, deduped by eid ----
 
 const EidEventSchema = z.object({ eid: z.string().optional() }).passthrough()
@@ -203,52 +106,128 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
   })
 }
 
-sessionRoutes.get('/:id/stream', sseHandler)
-sessionRoutes.get('/:id/events', sseHandler)
-
-sessionRoutes.get('/:id/todos', async c => {
-  const deps = c.get('deps')
-  const url = `${deps.config.memoryUrl.replace(/\/$/, '')}/api/v1/todos?session_name=${c.req.param('id')}`
-  const res = await ResultAsync.fromPromise(fetch(url), () => null)
-  if (res.isErr() || res.value === null) {
-    return err500(c, 'memory service unreachable')
-  }
-  const body = await ResultAsync.fromPromise(res.value.json(), () => ({}))
-  return c.json(body.isOk() ? body.value : {})
-})
-
-sessionRoutes.post('/:id/fork', zValidator('json', ForkBodySchema), async c => {
-  const deps = c.get('deps')
-  const pid = c.req.param('id')
-  const b = c.req.valid('json')
-  const parent = await Sessions.get(deps.db, pid)
-  if (parent.isErr()) return err500(c, parent.error)
-  if (parent.value === null) {
-    return c.json({ ok: false, error: 'session not found' }, 404)
-  }
-  const p = parent.value
-
-  const exists = await Sessions.exists(deps.db, b.name)
-  if (exists.isErr()) return err500(c, exists.error)
-  if (exists.value) {
-    return c.json({ ok: false, error: 'Session already exists' }, 409)
-  }
-
-  const name = await Sessions.create(deps.db, {
-    name: b.name,
-    model: p.model,
-    preset: p.preset,
-    tipId: p.tip_id,
+export const sessionRoutes = new Hono<AppEnv>()
+  .get('/', async c => {
+    const { db } = c.get('deps')
+    const r = await Sessions.list(db)
+    return r.isErr()
+      ? err500(c, r.error)
+      : c.json({ sessions: r.value.map(sessionToJson) })
   })
-  return name.isErr()
-    ? err500(c, name.error)
-    : c.json({ ok: true, session_name: name.value })
-})
+  .post('/', zValidator('json', CreateSessionBodySchema), async c => {
+    const { db } = c.get('deps')
+    const b = c.req.valid('json')
+    const exists = await Sessions.exists(db, b.name)
+    if (exists.isErr()) return err500(c, exists.error)
+    if (exists.value) {
+      return c.json({ ok: false, error: 'Session already exists' }, 409)
+    }
+    const name = await Sessions.create(db, b)
+    return name.isErr()
+      ? err500(c, name.error)
+      : c.json({ ok: true, session_name: name.value })
+  })
+  .get('/:id', async c => {
+    const { db } = c.get('deps')
+    const r = await Sessions.get(db, c.req.param('id'))
+    if (r.isErr()) return err500(c, r.error)
+    return r.value === null
+      ? c.json({ ok: false, error: 'session not found' }, 404)
+      : c.json({ session: sessionToJson(r.value) })
+  })
+  .delete('/:id', async c => {
+    const { db } = c.get('deps')
+    const id = c.req.param('id')
+    interruptRun(id)
+    const r = await Sessions.delete(db, id)
+    return r.isErr() ? err500(c, r.error) : c.json({ ok: true })
+  })
+  .get('/:id/messages', async c => {
+    const { db } = c.get('deps')
+    const sid = c.req.param('id')
+    const limit = Number.parseInt(c.req.query('limit') ?? '50', 10)
+    const before = c.req.query('before') ?? null
+    const tipRes = await Sessions.tip(db, sid)
+    const tipId = tipRes.isErr() ? null : tipRes.value
+    const r = await Messages.chain(db, tipId, limit, before)
+    return r.isErr() ? err500(c, r.error) : c.json({ messages: r.value })
+  })
+  .post('/:id/prompt', zValidator('json', PromptBodySchema), async c => {
+    const deps = c.get('deps')
+    const sid = c.req.param('id')
+    const { prompt } = c.req.valid('json')
 
-sessionRoutes.post(
-  '/:id/rename',
-  zValidator('json', RenameBodySchema),
-  async c => {
+    const session = await Sessions.get(deps.db, sid)
+    if (session.isErr()) return err500(c, session.error)
+    if (session.value === null) {
+      return c.json({ ok: false, error: 'session not found' }, 404)
+    }
+
+    // Persist the user message first (chained onto the tip) so the turn loop
+    // never runs against a history missing the prompt.
+    const tipRes = await Sessions.tip(deps.db, sid)
+    const tipId = tipRes.isErr() ? null : tipRes.value
+    const insert = await Messages.insert(deps.db, 'user', prompt, tipId)
+    if (insert.isErr()) return err500(c, insert.error)
+    await Sessions.setTip(deps.db, sid, insert.value)
+
+    const enq = await Mailbox.enqueue(deps.db, sid, 'user_prompt', {
+      text: prompt,
+    })
+    if (enq.isErr()) return err500(c, enq.error)
+
+    // Wake any replica via the durable mailbox subject. Every replica tries a
+    // claim; exactly one wins and drains the mailbox (idempotent, reentrant).
+    void deps.bus
+      .publishStream(mailboxSubject(sid), {
+        type: 'user_prompt',
+        session_name: sid,
+      })
+      .then(() => undefined)
+
+    void triggerClaim(deps, sid)
+    return c.json({ ok: true })
+  })
+  .get('/:id/stream', sseHandler)
+  .get('/:id/events', sseHandler)
+  .get('/:id/todos', async c => {
+    const deps = c.get('deps')
+    const url = `${deps.config.memoryUrl.replace(/\/$/, '')}/api/v1/todos?session_name=${c.req.param('id')}`
+    const res = await ResultAsync.fromPromise(fetch(url), () => null)
+    if (res.isErr() || res.value === null) {
+      return err500(c, 'memory service unreachable')
+    }
+    const body = await ResultAsync.fromPromise(res.value.json(), () => ({}))
+    return c.json(body.isOk() ? body.value : {})
+  })
+  .post('/:id/fork', zValidator('json', ForkBodySchema), async c => {
+    const deps = c.get('deps')
+    const pid = c.req.param('id')
+    const b = c.req.valid('json')
+    const parent = await Sessions.get(deps.db, pid)
+    if (parent.isErr()) return err500(c, parent.error)
+    if (parent.value === null) {
+      return c.json({ ok: false, error: 'session not found' }, 404)
+    }
+    const p = parent.value
+
+    const exists = await Sessions.exists(deps.db, b.name)
+    if (exists.isErr()) return err500(c, exists.error)
+    if (exists.value) {
+      return c.json({ ok: false, error: 'Session already exists' }, 409)
+    }
+
+    const name = await Sessions.create(deps.db, {
+      name: b.name,
+      model: p.model,
+      preset: p.preset,
+      tipId: p.tip_id,
+    })
+    return name.isErr()
+      ? err500(c, name.error)
+      : c.json({ ok: true, session_name: name.value })
+  })
+  .post('/:id/rename', zValidator('json', RenameBodySchema), async c => {
     const deps = c.get('deps')
     const oldName = c.req.param('id')
     const b = c.req.valid('json')
@@ -280,13 +259,8 @@ sessionRoutes.post(
     const removed = await Sessions.delete(deps.db, oldName)
     if (removed.isErr()) return err500(c, removed.error)
     return c.json({ ok: true, session_name: b.name })
-  },
-)
-
-sessionRoutes.post(
-  '/:id/model',
-  zValidator('json', ModelBodySchema),
-  async c => {
+  })
+  .post('/:id/model', zValidator('json', ModelBodySchema), async c => {
     const { db } = c.get('deps')
     const r = await Sessions.setModel(
       db,
@@ -296,110 +270,101 @@ sessionRoutes.post(
     return r.isErr()
       ? err500(c, r.error)
       : c.json({ model: c.req.valid('json').model })
-  },
-)
+  })
+  .post('/:id/undo', zValidator('json', UndoBodySchema), async c => {
+    const deps = c.get('deps')
+    const sid = c.req.param('id')
+    const { message_id } = c.req.valid('json')
 
-sessionRoutes.post('/:id/undo', zValidator('json', UndoBodySchema), async c => {
-  const deps = c.get('deps')
-  const sid = c.req.param('id')
-  const { message_id } = c.req.valid('json')
+    const session = await Sessions.get(deps.db, sid)
+    if (session.isErr()) return err500(c, session.error)
+    const s = session.value
+    if (s === null)
+      return c.json({ ok: false, error: 'session not found' }, 404)
 
-  const session = await Sessions.get(deps.db, sid)
-  if (session.isErr()) return err500(c, session.error)
-  const s = session.value
-  if (s === null) return c.json({ ok: false, error: 'session not found' }, 404)
+    const tip = s.tip_id
+    if (tip === null || tip === '') {
+      return c.json({ ok: false, undone: false })
+    }
+    const targetId = message_id ?? tip
+    const target = await Messages.get(deps.db, targetId)
+    if (target.isErr()) return err500(c, target.error)
+    if (target.value === null) return c.json({ ok: false, undone: false })
 
-  const tip = s.tip_id
-  if (tip === null || tip === '') {
-    return c.json({ ok: false, undone: false })
-  }
-  const targetId = message_id ?? tip
-  const target = await Messages.get(deps.db, targetId)
-  if (target.isErr()) return err500(c, target.error)
-  if (target.value === null) return c.json({ ok: false, undone: false })
+    // undo == move the tip pointer back; messages are append-only and never
+    // physically deleted (COW). At the chain head this becomes a no-op.
+    await Sessions.setTip(deps.db, sid, target.value.prev_id)
 
-  // undo == move the tip pointer back; messages are append-only and never
-  // physically deleted (COW). At the chain head this becomes a no-op.
-  await Sessions.setTip(deps.db, sid, target.value.prev_id)
-
-  return c.json({ ok: true, undone: true })
-})
-
-sessionRoutes.post('/:id/read', async c => c.json({ ok: true }))
-
-sessionRoutes.get('/:id/state', async c =>
-  c.json({ status: 'idle', parts: [] }),
-)
-
-sessionRoutes.get('/:id/mailbox', async c => {
-  const { db } = c.get('deps')
-  const r = await Mailbox.list(db, c.req.param('id'))
-  return r.isErr() ? err500(c, r.error) : c.json({ entries: r.value })
-})
-
-sessionRoutes.get('/:id/changes', async c => {
-  const { db } = c.get('deps')
-  const sid = c.req.param('id')
-  const tipRes = await Sessions.tip(db, sid)
-  const tipId = tipRes.isErr() ? null : tipRes.value
-  const chain = await Messages.chain(db, tipId, 100_000, null)
-  if (chain.isErr()) return err500(c, chain.error)
-  const ids = chain.value.map(m => m.id)
-  const partsRes = await Parts.listByMessages(db, ids)
-  if (partsRes.isErr()) return err500(c, partsRes.error)
-
-  const changes: Array<Record<string, unknown>> = []
-  for (const p of partsRes.value) {
-    if (p.type !== 'tool' || p.change_id === null) continue
-    const data = parse(ToolPartDataSchema, p.data)
-    const name = data.isOk() ? data.value.name : 'tool'
-    changes.push({
-      change_id: p.change_id,
-      tool_name: name,
-      timestamp: '',
-      message_id: p.message_id,
-      content: '',
-      seq: p.seq,
-    })
-  }
-  return c.json({ changes })
-})
-
-sessionRoutes.patch(
-  '/:id/settings',
-  zValidator('json', SessionSettingsBodySchema),
-  async c => {
+    return c.json({ ok: true, undone: true })
+  })
+  .post('/:id/read', async c => c.json({ ok: true }))
+  .get('/:id/state', async c => c.json({ status: 'idle', parts: [] }))
+  .get('/:id/mailbox', async c => {
+    const { db } = c.get('deps')
+    const r = await Mailbox.list(db, c.req.param('id'))
+    return r.isErr() ? err500(c, r.error) : c.json({ entries: r.value })
+  })
+  .get('/:id/changes', async c => {
     const { db } = c.get('deps')
     const sid = c.req.param('id')
-    const b = c.req.valid('json')
-    const r = await Sessions.updateSettings(db, sid, {
-      model: b.model,
-      preset: b.preset,
-    })
-    if (r.isErr()) return err500(c, r.error)
-    const s = await Sessions.get(db, sid)
-    if (s.isErr()) return err500(c, s.error)
-    return s.value === null
-      ? c.json({ ok: false, error: 'session not found' }, 404)
-      : c.json({ session: sessionToJson(s.value) })
-  },
-)
+    const tipRes = await Sessions.tip(db, sid)
+    const tipId = tipRes.isErr() ? null : tipRes.value
+    const chain = await Messages.chain(db, tipId, 100_000, null)
+    if (chain.isErr()) return err500(c, chain.error)
+    const ids = chain.value.map(m => m.id)
+    const partsRes = await Parts.listByMessages(db, ids)
+    if (partsRes.isErr()) return err500(c, partsRes.error)
 
-sessionRoutes.post('/:id/interrupt', async c => {
-  const deps = c.get('deps')
-  const sid = c.req.param('id')
-  // 1. Local mid-stream abort (this replica).
-  interruptRun(sid)
-  // 2. Durable: enqueue + wake publish so the replica holding the session
-  //    aborts its in-flight stream.
-  const enq = await Mailbox.enqueue(deps.db, sid, 'interrupt', {})
-  if (enq.isErr()) return err500(c, enq.error)
-  void deps.bus
-    .publishStream(mailboxSubject(sid), {
-      type: 'interrupt',
-      session_name: sid,
-    })
-    .then(() => undefined)
-  void triggerClaim(deps, sid)
-  return c.json({ interrupted: true })
-})
+    const changes: Array<Record<string, unknown>> = []
+    for (const p of partsRes.value) {
+      if (p.type !== 'tool' || p.change_id === null) continue
+      const data = parse(ToolPartDataSchema, p.data)
+      const name = data.isOk() ? data.value.name : 'tool'
+      changes.push({
+        change_id: p.change_id,
+        tool_name: name,
+        timestamp: '',
+        message_id: p.message_id,
+        content: '',
+        seq: p.seq,
+      })
+    }
+    return c.json({ changes })
+  })
+  .patch(
+    '/:id/settings',
+    zValidator('json', SessionSettingsBodySchema),
+    async c => {
+      const { db } = c.get('deps')
+      const sid = c.req.param('id')
+      const b = c.req.valid('json')
+      const r = await Sessions.updateSettings(db, sid, {
+        model: b.model,
+        preset: b.preset,
+      })
+      if (r.isErr()) return err500(c, r.error)
+      const s = await Sessions.get(db, sid)
+      if (s.isErr()) return err500(c, s.error)
+      return s.value === null
+        ? c.json({ ok: false, error: 'session not found' }, 404)
+        : c.json({ session: sessionToJson(s.value) })
+    },
+  )
+  .post('/:id/interrupt', async c => {
+    const deps = c.get('deps')
+    const sid = c.req.param('id')
+    // 1. Local mid-stream abort (this replica).
+    interruptRun(sid)
+    // 2. Durable: enqueue + wake publish so the replica holding the session
+    //    aborts its in-flight stream.
+    const enq = await Mailbox.enqueue(deps.db, sid, 'interrupt', {})
+    if (enq.isErr()) return err500(c, enq.error)
+    void deps.bus
+      .publishStream(mailboxSubject(sid), {
+        type: 'interrupt',
+        session_name: sid,
+      })
+      .then(() => undefined)
+    void triggerClaim(deps, sid)
+    return c.json({ interrupted: true })
+  })

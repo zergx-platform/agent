@@ -14,8 +14,10 @@ import {
 } from '@rucoder-agent/agent'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { app } from './app.js'
 import type { AppEnv } from './context.js'
-import { buildRoutes } from './routes/index.js'
+
+export type { AppType } from './app.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -94,8 +96,6 @@ async function main(): Promise<void> {
     llm,
   }
 
-  const app = new Hono<AppEnv>()
-
   app.onError((err, c) => {
     if (err instanceof HTTPException) {
       if (err.res) return c.newResponse(err.res.body, err.res)
@@ -109,10 +109,14 @@ async function main(): Promise<void> {
     await next()
   })
 
-  app.route('/api/v1', buildRoutes())
+  // Mount the API under /api/v1 (runtime). The typed client is derived from
+  // `AppType` (root-relative paths) and includes `/api/v1` in its base URL.
+  const apiApp = new Hono<AppEnv>().route('/api/v1', app)
 
   // Serve the SPA from embedded SEA assets (single-executable deployment).
-  app.use('*', seaStatic())
+  apiApp.use('*', seaStatic())
+
+  const servingApp = apiApp
 
   // Watch every session's mailbox wake wildcard so this replica can claim and
   // run work for any session — the horizontal scale-out trigger.
@@ -125,7 +129,7 @@ async function main(): Promise<void> {
     e => console.warn(`[server] ${e}`),
   )
 
-  const server = serve({ fetch: app.fetch, port: config.port }, info => {
+  const server = serve({ fetch: servingApp.fetch, port: config.port }, info => {
     console.log(
       `[server] rucoder-agent-ts listening on :${info.port} (pid ${process.pid})`,
     )
