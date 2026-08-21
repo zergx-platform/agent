@@ -300,7 +300,7 @@ async function runTurnOnce(
       if (ctrl.signal.aborted && injectedUserPrompt.length === 0) break
 
       if (
-        !finished &&
+        finished &&
         toolCalls.length === 0 &&
         injectedUserPrompt.length === 0
       ) {
