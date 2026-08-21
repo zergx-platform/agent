@@ -6,10 +6,10 @@ import {
   Providers,
   parse,
   parseLoose,
-  stringify,
 } from '@rucoder-agent/agent'
 import { ConfigBodySchema, PresetBodySchema } from '@rucoder-agent/schema'
 import { Hono } from 'hono'
+import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
 
@@ -34,7 +34,7 @@ configRoutes.post('/presets', zValidator('json', PresetBodySchema), async c => {
   const r = await Presets.upsert(db, {
     id: b.id,
     systemPrompt: b.system_prompt ?? '',
-    tools: stringify(b.tools ?? []),
+    tools: JSON.stringify(b.tools ?? []),
     maxTurns: b.max_turns ?? 0,
   })
   return r.isErr()
@@ -91,14 +91,14 @@ configRoutes.get('/tool-config', async c => {
 
 configRoutes.put('/tool-config', async c => {
   const { db } = c.get('deps')
-  const body = await c.req.json().catch(() => null)
-  if (body === null) {
+  const body = await ResultAsync.fromPromise(c.req.json(), () => null)
+  if (body.isErr() || body.value === null) {
     return c.json({ ok: false, error: 'invalid json body' }, 400)
   }
-  const r = await Config.set(db, 'tool_config', stringify(body))
+  const r = await Config.set(db, 'tool_config', JSON.stringify(body.value))
   return r.isErr()
     ? c.json({ ok: false, error: r.error }, 500)
-    : c.json({ ok: true, config: body })
+    : c.json({ ok: true, config: body.value })
 })
 
 // ---- tools ----

@@ -36,20 +36,9 @@ export function parseLoose(
 
 export const SessionRowSchema = z.object({
   name: z.string(),
-  org: z.string(),
-  repo: z.string(),
-  branch: z.string(),
   model: z.string(),
   preset: z.string(),
   tip_id: z.string().nullable(),
-  parent_id: z.string().nullable(),
-  fork_at_msg_id: z.string().nullable(),
-  worker_url: z.string().nullable(),
-  container_id: z.string().nullable(),
-  max_turns: z.number().int().nullable(),
-  system_prompt: z.string().nullable(),
-  revert: z.string().nullable(),
-  redo_tip_id: z.string().nullable(),
   last_read_at: z.string().nullable(),
   input_tokens: z.number().int(),
   output_tokens: z.number().int(),
@@ -84,7 +73,7 @@ export type PartRow = z.infer<typeof PartRowSchema>
 
 export const MailboxRowSchema = z.object({
   id: z.string(),
-  session_id: z.string(),
+  session_name: z.string(),
   msg_type: z.string(),
   payload: z.string(),
   effective_at: z.string().nullable(),
@@ -118,9 +107,6 @@ export type ProviderRow = z.infer<typeof ProviderRowSchema>
 
 export const CreateSessionBodySchema = z.object({
   name: z.string().min(1),
-  org: z.string().min(1),
-  repo: z.string().min(1),
-  branch: z.string().min(1),
   model: z.string().optional(),
   preset: z.string().optional(),
 })
@@ -131,9 +117,13 @@ export type PromptBody = z.infer<typeof PromptBodySchema>
 
 export const ForkBodySchema = z.object({
   name: z.string().min(1),
-  branch: z.string().optional(),
 })
 export type ForkBody = z.infer<typeof ForkBodySchema>
+
+export const RenameBodySchema = z.object({
+  name: z.string().min(1),
+})
+export type RenameBody = z.infer<typeof RenameBodySchema>
 
 export const ModelBodySchema = z.object({ model: z.string().min(1) })
 export type ModelBody = z.infer<typeof ModelBodySchema>

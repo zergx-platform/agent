@@ -17,11 +17,11 @@ import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
   ContentPayloadSchema,
   parse,
-  stringify,
+  type ToolResult,
   WakePayloadSchema,
 } from './json.js'
 import type { LlmRegistry } from './llm.js'
-import { buildAiTools, discoverTools, type SessionCtx } from './tools.js'
+import { buildAiTools, discoverTools } from './tools.js'
 
 export interface AgentDeps {
   db: Db
@@ -50,8 +50,8 @@ export function watchMailboxWake(deps: AgentDeps): () => void {
       for await (const m of sub) {
         if (stopped) break
         const parsed = parse(WakePayloadSchema, m.data)
-        if (parsed.isOk() && parsed.value.session_id !== '') {
-          void runSessionTurn(deps, parsed.value.session_id)
+        if (parsed.isOk() && parsed.value.session_name !== '') {
+          void runSessionTurn(deps, parsed.value.session_name)
         }
       }
     },
@@ -66,53 +66,51 @@ export function watchMailboxWake(deps: AgentDeps): () => void {
 }
 
 /**
- * Claim the per-session run lease (cross-replica). Exactly one replica wins;
- * losers return without running — the winner drains the mailbox to completion
- * and re-checks for new items before releasing, closing the race where a
- * message arrives just as a turn is winding down.
+ * Claim the per-session run lease (cross-replica), drain the mailbox to
+ * completion, then release. The loop re-claims after releasing whenever a
+ * final drain still finds work, closing the race where a message arrives just
+ * as the lease is released. The durable wake signal remains as a cold-start
+ * backstop; exactly one replica wins any given claim.
  */
 export async function runSessionTurn(
   deps: AgentDeps,
   sid: string,
 ): Promise<void> {
-  const claimed = await deps.bus.claimSession(sid)
-  if (claimed.isErr()) {
-    console.warn(`[agent] claim error (${sid}): ${claimed.error}`)
-    return
-  }
-  if (claimed.value === false) {
-    // Another replica is running this session; it will drain our message.
-    return
-  }
+  for (;;) {
+    const claimed = await deps.bus.claimSession(sid)
+    if (claimed.isErr()) {
+      console.warn(`[agent] claim error (${sid}): ${claimed.error}`)
+      return
+    }
+    if (claimed.value === false) {
+      // Another replica is running this session; it will drain our message.
+      return
+    }
 
-  try {
-    for (;;) {
-      const item = await drainOne(deps, sid)
-      if (item === null) {
-        // Re-drain after a short grace to close the enqueue/drain race where a
-        // message lands just as we observe an empty mailbox.
-        await sleep(DRAIN_GRACE_MS)
-        const again = await drainOne(deps, sid)
-        if (again !== null) {
+    try {
+      for (;;) {
+        const item = await drainOne(deps, sid)
+        if (item === null) {
+          // Re-drain after a short grace to close the enqueue/drain race.
+          await sleep(DRAIN_GRACE_MS)
+          const again = await drainOne(deps, sid)
+          if (again === null) break
           await handleItem(deps, sid, again)
           continue
         }
-        // Second drain also empty: release the lease, but only after a final
-        // confirmation drain so a message arriving in the release window is
-        // not stranded (its wake will claim the now-idle lease).
-        const final = await drainOne(deps, sid)
-        if (final !== null) {
-          await handleItem(deps, sid, final)
-          continue
-        }
-        break
+        await handleItem(deps, sid, item)
       }
-      await handleItem(deps, sid, item)
+    } finally {
+      await deps.bus.releaseSession(sid)
     }
-  } finally {
-    await deps.bus.releaseSession(sid)
-    pushEvent(deps.bus, sid, 'status', { type: 'idle' })
+
+    // Released: confirm nothing arrived during the release window. If it did,
+    // loop and re-claim (the lease is now free, so the claim wins).
+    const leftover = await drainOne(deps, sid)
+    if (leftover === null) break
+    await handleItem(deps, sid, leftover)
   }
+  pushEvent(deps.bus, sid, 'status', { type: 'idle' })
 }
 
 async function handleItem(
@@ -144,7 +142,6 @@ async function drainOne(deps: AgentDeps, sid: string) {
 }
 
 interface TurnCtx {
-  ctx: SessionCtx
   tools: Record<string, Tool>
   system: string
   maxTurns: number
@@ -214,7 +211,7 @@ async function runTurnOnce(
       const toolResults: Array<{
         id: string
         name: string
-        output: unknown
+        result: ToolResult
       }> = []
       let usage: { inputTokens: number; outputTokens: number } | null = null
 
@@ -235,11 +232,11 @@ async function runTurnOnce(
             toolResults.push({
               id: part.toolCallId,
               name: part.toolName,
-              output: part.output,
+              result: part.output,
             })
             pushEvent(deps.bus, sid, 'tool-result', {
               tool_use_id: part.toolCallId,
-              content: outputToContent(part.output),
+              content: part.output.content,
             })
             break
           case 'tool-error':
@@ -248,18 +245,18 @@ async function runTurnOnce(
             toolResults.push({
               id: part.toolCallId,
               name: part.toolName,
-              output: part.error,
+              result: { content: String(part.error), metadata: null },
             })
             pushEvent(deps.bus, sid, 'tool-result', {
               tool_use_id: part.toolCallId,
-              content: outputToContent(part.error),
+              content: String(part.error),
             })
             break
           case 'tool-output-denied':
             toolResults.push({
               id: part.toolCallId,
               name: part.toolName,
-              output: 'denied',
+              result: { content: 'denied', metadata: null },
             })
             break
           case 'finish-step':
@@ -340,12 +337,6 @@ async function prepare(
   const session = sessionRes.value
   if (session === null) return 'session not found'
 
-  const ctx: SessionCtx = {
-    org: session.org,
-    repo: session.repo,
-    branch: session.branch,
-  }
-
   const presetRow =
     session.preset !== ''
       ? (await Presets.get(deps.db, session.preset)).unwrapOr(null)
@@ -359,34 +350,27 @@ async function prepare(
     whitelist === null
       ? discovered
       : discovered.filter(t => whitelist.has(t.name))
-  const tools = buildAiTools(active, ctx, deps.bus, deps.config.toolTimeoutMs)
+  const tools = buildAiTools(active, deps.bus, deps.config.toolTimeoutMs)
 
   const systemPrompt =
-    session.system_prompt !== null && session.system_prompt !== ''
-      ? session.system_prompt
-      : presetRow !== null && presetRow.system_prompt !== ''
-        ? presetRow.system_prompt
-        : 'You are a helpful assistant.'
+    presetRow !== null && presetRow.system_prompt !== ''
+      ? presetRow.system_prompt
+      : 'You are a helpful assistant.'
   const env = [
     '<env>',
-    `  Session repo: ${ctx.org}/${ctx.repo}#${ctx.branch}`,
-    '  This is the ONLY repo you may modify. Read access to all other platform repos: pass target="org/repo/bookmark".',
     `  Today's date: ${new Date().toISOString().slice(0, 10)}`,
     '</env>',
   ].join('\n')
 
   const maxTurns =
-    session.max_turns !== null && session.max_turns > 0
-      ? session.max_turns
-      : presetRow !== null && presetRow.max_turns > 0
-        ? presetRow.max_turns
-        : deps.config.defaultMaxTurns
+    presetRow !== null && presetRow.max_turns > 0
+      ? presetRow.max_turns
+      : deps.config.defaultMaxTurns
 
   const resolved = await deps.llm.resolve(deps.db, session.model)
   if (resolved.isErr()) return resolved.error
 
   return {
-    ctx,
     tools,
     system: `${systemPrompt}\n\n${env}`,
     maxTurns,
@@ -403,7 +387,7 @@ interface ToolCallRec {
 interface ToolResultRec {
   id: string
   name: string
-  output: unknown
+  result: ToolResult
 }
 
 /** Persist one step: chained assistant message + text/tool/tool_result parts. */
@@ -430,35 +414,26 @@ async function persistStep(
     await Parts.insert(deps.db, messageId, 'text', seq++, { text })
   }
   for (const tc of toolCalls) {
-    const out = toolResults.find(r => r.id === tc.id)?.output
-    const changeId =
-      out !== null &&
-      out !== undefined &&
-      typeof out === 'object' &&
-      'result' in (out as Record<string, unknown>) &&
-      (out as { result?: { change_id?: unknown } }).result !== null &&
-      typeof (out as { result?: { change_id?: unknown } }).result === 'object'
-        ? (((out as { result: { change_id?: unknown } }).result.change_id as
-            | string
-            | undefined) ?? null)
-        : null
+    const result = toolResults.find(r => r.id === tc.id)?.result
     await Parts.insert(
       deps.db,
       messageId,
       'tool',
       seq++,
       { id: tc.id, name: tc.name, input: tc.input },
-      changeId,
+      null,
     )
-    // Always persist a result (error text as a fallback) so the tool-call is
-    // never left unpaired for the next turn's history rebuild.
+    // Persist the canonical ToolResult (content + opaque metadata) so the
+    // history rebuild and the read API can both reproduce it verbatim.
     const content =
-      out !== undefined
-        ? outputToContent(out)
+      result !== undefined
+        ? result.content
         : `tool '${tc.name}' produced no output`
+    const metadata = result !== undefined ? result.metadata : null
     await Parts.insert(deps.db, messageId, 'tool_result', seq++, {
       tool_use_id: tc.id,
       content,
+      metadata,
     })
   }
   await Sessions.setTip(deps.db, sid, messageId)
@@ -565,7 +540,7 @@ function appendStep(
         type: 'tool-result',
         toolCallId: r.id,
         toolName: r.name,
-        output: { type: 'text', value: outputToContent(r.output) },
+        output: { type: 'text', value: r.result.content },
       })),
     })
   }
@@ -586,19 +561,6 @@ async function loadHistory(
   const parts = await Parts.listByMessages(deps.db, ids)
   if (parts.isErr()) return []
   return rebuildHistory(chain.value, parts.value)
-}
-
-function outputToContent(output: unknown): string {
-  if (typeof output === 'string') return output
-  if (
-    output !== null &&
-    typeof output === 'object' &&
-    'content' in (output as Record<string, unknown>) &&
-    typeof (output as { content: unknown }).content === 'string'
-  ) {
-    return (output as { content: string }).content
-  }
-  return stringify(output ?? '')
 }
 
 function sleep(ms: number): Promise<void> {

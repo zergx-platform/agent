@@ -2,11 +2,14 @@ import { err, ok, type Result } from 'neverthrow'
 import { z } from 'zod'
 
 /**
- * A single source of truth for JSON serialization/deserialization.
+ * A single source of truth for JSON deserialization.
  *
- * Nothing in the codebase may call `JSON.parse` / `JSON.stringify` directly —
- * every boundary uses these helpers so malformed input is always reported via
- * `neverthrow` `Result` (parse) rather than throwing or silently nulling.
+ * Never call `JSON.parse` directly — every inbound boundary uses `parse` /
+ * `parseLoose` so malformed input is reported via a `neverthrow` Result rather
+ * than throwing or silently nulling.
+ *
+ * `JSON.stringify` is safe for JSON-encodable values and IS permitted for
+ * serialization (outbound only).
  */
 
 export type Json = unknown
@@ -32,7 +35,7 @@ export function parse<T extends z.ZodType>(
   return err(`parse: schema mismatch: ${z.treeifyError(result.error)}`)
 }
 
-/** Serialize a value to a JSON string. Never throws for JSON-safe input. */
+/** Serialize a value to a JSON string (outbound only). */
 export function stringify(value: unknown): string {
   return JSON.stringify(value ?? null)
 }
@@ -62,7 +65,7 @@ export function parseJson<T = unknown>(
 // ---- shared payload / envelope schemas (kept here to avoid a schema→db dep) ----
 
 export const WakePayloadSchema = z.object({
-  session_id: z.string(),
+  session_name: z.string(),
   type: z.enum(['user_prompt', 'interrupt', 'event']),
 })
 export type WakePayload = z.infer<typeof WakePayloadSchema>
@@ -84,6 +87,7 @@ export type ToolPartData = z.infer<typeof ToolPartDataSchema>
 export const ToolResultPartDataSchema = z.object({
   tool_use_id: z.string(),
   content: z.string(),
+  metadata: z.unknown(),
 })
 export type ToolResultPartData = z.infer<typeof ToolResultPartDataSchema>
 
@@ -91,3 +95,24 @@ export const TextPartDataSchema = z.object({
   text: z.string(),
 })
 export type TextPartData = z.infer<typeof TextPartDataSchema>
+
+export const ToolResultEnvelopeSchema = z.object({
+  call_id: z.string(),
+  tool: z.string(),
+  content: z.string(),
+  content_object: z.string().optional(),
+  metadata: z.unknown(),
+})
+export type ToolResultEnvelope = z.infer<typeof ToolResultEnvelopeSchema>
+
+/**
+ * The canonical tool result: `content` is the natural-language text fed back
+ * to the model; `metadata` is an opaque custom JSON the agent persists and
+ * forwards verbatim (never parsed). Shared across the NATS boundary and the
+ * persisted part data.
+ */
+export const ToolResultSchema = z.object({
+  content: z.string(),
+  metadata: z.unknown(),
+})
+export type ToolResult = z.infer<typeof ToolResultSchema>

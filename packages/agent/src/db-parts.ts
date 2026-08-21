@@ -4,7 +4,6 @@ import { ResultAsync } from 'neverthrow'
 import type { Db } from './db-client.js'
 import { q, uuid } from './db-client.js'
 import { parts } from './db-schema.js'
-import { stringify } from './json.js'
 
 const toRow = (r: typeof parts.$inferSelect): PartRow => ({
   id: r.id,
@@ -33,7 +32,7 @@ export const Parts = {
           type,
           seq,
           changeId,
-          data: stringify(data ?? {}),
+          data: JSON.stringify(data ?? {}),
         }),
       'insert part',
     ).map(() => id)

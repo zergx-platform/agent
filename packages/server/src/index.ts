@@ -92,7 +92,10 @@ async function main(): Promise<void> {
     stopWake()
     server.close(() => {
       bus.close()
-      void (db.$client as Sql).end().catch(() => process.exit(0))
+      void (db.$client as Sql).end().then(
+        () => process.exit(0),
+        () => process.exit(0),
+      )
       setTimeout(() => process.exit(0), 3000).unref()
     })
   }
@@ -105,8 +108,10 @@ async function main(): Promise<void> {
   const pending = await Mailbox.pendingSessions(db)
   if (pending.isOk()) {
     for (const sid of pending.value) {
-      void runSessionTurn(deps, sid).catch(e =>
-        console.error(`[agent] recovery turn crashed (${sid}): ${String(e)}`),
+      void runSessionTurn(deps, sid).then(
+        () => {},
+        e =>
+          console.error(`[agent] recovery turn crashed (${sid}): ${String(e)}`),
       )
     }
   }

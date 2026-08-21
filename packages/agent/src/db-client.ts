@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { ResultAsync } from 'neverthrow'
 import postgres, { type Sql } from 'postgres'
-import { parseLoose, stringify } from './json.js'
+import { parseLoose } from './json.js'
 
 export type Db = ReturnType<typeof drizzle>
 
@@ -30,20 +30,9 @@ export {
 const DDL = `
 CREATE TABLE IF NOT EXISTS sessions (
     name TEXT PRIMARY KEY,
-    org TEXT NOT NULL,
-    repo TEXT NOT NULL,
-    branch TEXT NOT NULL,
     model TEXT NOT NULL DEFAULT '',
     preset TEXT NOT NULL DEFAULT '',
     tip_id TEXT,
-    parent_id TEXT,
-    fork_at_msg_id TEXT,
-    worker_url TEXT,
-    container_id TEXT,
-    max_turns INTEGER,
-    system_prompt TEXT,
-    revert TEXT,
-    redo_tip_id TEXT,
     last_read_at TEXT,
     input_tokens BIGINT NOT NULL DEFAULT 0,
     output_tokens BIGINT NOT NULL DEFAULT 0,
@@ -52,7 +41,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TEXT NOT NULL DEFAULT (NOW()::text),
     last_used_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_s_org_repo ON sessions (org, repo);
 
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
@@ -79,7 +67,7 @@ CREATE INDEX IF NOT EXISTS idx_parts_change ON parts (change_id);
 
 CREATE TABLE IF NOT EXISTS mailbox (
     id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(name) ON DELETE CASCADE,
+    session_name TEXT NOT NULL REFERENCES sessions(name) ON DELETE CASCADE,
     msg_type TEXT NOT NULL,
     payload TEXT NOT NULL DEFAULT '{}',
     effective_at TEXT,
@@ -88,7 +76,7 @@ CREATE TABLE IF NOT EXISTS mailbox (
     consumed_at TEXT,
     seq INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_mb_sess ON mailbox (session_id);
+CREATE INDEX IF NOT EXISTS idx_mb_sess ON mailbox (session_name);
 
 CREATE TABLE IF NOT EXISTS presets (
     id TEXT PRIMARY KEY,
@@ -180,12 +168,27 @@ export function connectDb(url: string): ResultAsync<Db, string> {
  * a REPLACE-based migration would be required instead.
  */
 async function migrateSchema(sql: Sql): Promise<void> {
-  // Drop legacy `session_id` columns from the shared-history tables if any
-  // survive from a prior schema (messages/parts are now session-agnostic).
+  // Drop legacy columns that no longer exist in the model:
+  // - messages/parts lost `session_id` (they are session-agnostic).
+  // - sessions lost the surrogate `id`, and the repo-scoped org/repo/branch
+  //   columns (repo association lives in another service).
+  // - sessions lost `revert`/`redo_tip_id` (redo removed).
   await sql.unsafe(`
     ALTER TABLE messages DROP COLUMN IF EXISTS session_id;
     ALTER TABLE parts DROP COLUMN IF EXISTS session_id;
     ALTER TABLE sessions DROP COLUMN IF EXISTS id;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS org;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS repo;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS branch;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS revert;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS redo_tip_id;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS parent_id;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS fork_at_msg_id;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS worker_url;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS container_id;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS max_turns;
+    ALTER TABLE sessions DROP COLUMN IF EXISTS system_prompt;
+    ALTER TABLE mailbox DROP COLUMN IF EXISTS session_id;
   `)
   await sql.unsafe(DDL)
 }
@@ -215,8 +218,8 @@ async function importProviders(sql: Sql): Promise<void> {
               ${typeof o.api_type === 'string' ? o.api_type : 'openai-compatible'},
               ${baseUrl},
               ${typeof o.api_key === 'string' ? o.api_key : ''},
-              ${stringify(o.headers ?? null)},
-              ${stringify(o.models ?? [])},
+              ${JSON.stringify(o.headers ?? null)},
+              ${JSON.stringify(o.models ?? [])},
               ${nowStr()}, ${nowStr()})
       ON CONFLICT (provider_id) DO NOTHING`
     imported++

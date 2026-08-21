@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { Db } from './db-client.js'
 import { nowStr, q } from './db-client.js'
 import { providers } from './db-schema.js'
-import { parse, stringify } from './json.js'
+import { parse } from './json.js'
 
 const StringArraySchema = z.array(z.string())
 
@@ -51,8 +51,8 @@ export const Providers = {
             apiType: input.apiType,
             baseUrl: input.baseUrl,
             apiKey: input.apiKey,
-            headers: stringify(input.headers ?? null),
-            models: stringify(input.models ?? []),
+            headers: JSON.stringify(input.headers ?? null),
+            models: JSON.stringify(input.models ?? []),
             createdAt: nowStr(),
             updatedAt: nowStr(),
           })
@@ -62,8 +62,8 @@ export const Providers = {
               apiType: input.apiType,
               baseUrl: input.baseUrl,
               apiKey: input.apiKey,
-              headers: stringify(input.headers ?? null),
-              models: stringify(input.models ?? []),
+              headers: JSON.stringify(input.headers ?? null),
+              models: JSON.stringify(input.models ?? []),
               updatedAt: nowStr(),
             },
           }),

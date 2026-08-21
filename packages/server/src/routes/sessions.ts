@@ -12,7 +12,6 @@ import {
   Sessions,
   STREAM_SSE,
   sseSubject,
-  stringify,
   ToolPartDataSchema,
 } from '@rucoder-agent/agent'
 import {
@@ -20,12 +19,14 @@ import {
   ForkBodySchema,
   ModelBodySchema,
   PromptBodySchema,
+  RenameBodySchema,
   type SessionRow,
   SessionSettingsBodySchema,
   UndoBodySchema,
 } from '@rucoder-agent/schema'
 import { type Context, Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
+import { ResultAsync } from 'neverthrow'
 import { type AppEnv, EidDedup } from '../context.js'
 
 /** Serialize a session row into the recoder UI contract. */
@@ -43,8 +44,9 @@ function err500(c: Context, message: string) {
  * every replica — exactly one claim wins.
  */
 function triggerClaim(deps: AgentDeps, sid: string): void {
-  void runSessionTurn(deps, sid).catch(e =>
-    console.error(`[agent] turn crashed (${sid}): ${String(e)}`),
+  void runSessionTurn(deps, sid).then(
+    () => {},
+    e => console.error(`[agent] turn crashed (${sid}): ${String(e)}`),
   )
 }
 
@@ -136,7 +138,7 @@ sessionRoutes.post(
     void deps.bus
       .publishStream(mailboxSubject(sid), {
         type: 'user_prompt',
-        session_id: sid,
+        session_name: sid,
       })
       .then(() => undefined)
 
@@ -157,7 +159,7 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
     const subRes = await bus.subscribe(subject)
     if (subRes.isErr()) {
       await stream.writeSSE({
-        data: stringify({
+        data: JSON.stringify({
           event: 'error',
           params: { message: subRes.error },
         }),
@@ -177,7 +179,7 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
     if (replay.isOk()) {
       for (const v of replay.value as { eid?: string }[]) {
         dedup.mark(v.eid)
-        await stream.writeSSE({ data: stringify(v) })
+        await stream.writeSSE({ data: JSON.stringify(v) })
       }
     }
 
@@ -187,7 +189,7 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
       if (!parsed.isOk()) continue
       const v = parsed.value as { eid?: string }
       if (dedup.duplicate(v?.eid)) continue
-      await stream.writeSSE({ data: stringify(v) })
+      await stream.writeSSE({ data: JSON.stringify(v) })
     }
   }) as Response
 }
@@ -197,13 +199,13 @@ sessionRoutes.get('/:id/events', sseHandler)
 
 sessionRoutes.get('/:id/todos', async c => {
   const deps = c.get('deps')
-  const url = `${deps.config.memoryUrl.replace(/\/$/, '')}/api/v1/todos?session_id=${c.req.param('id')}`
-  try {
-    const res = await fetch(url)
-    return c.json(await res.json())
-  } catch (e) {
-    return err500(c, `memory service: ${String(e)}`)
+  const url = `${deps.config.memoryUrl.replace(/\/$/, '')}/api/v1/todos?session_name=${c.req.param('id')}`
+  const res = await ResultAsync.fromPromise(fetch(url), () => null)
+  if (res.isErr() || res.value === null) {
+    return err500(c, 'memory service unreachable')
   }
+  const body = await ResultAsync.fromPromise(res.value.json(), () => ({}))
+  return c.json(body.isOk() ? body.value : {})
 })
 
 sessionRoutes.post('/:id/fork', zValidator('json', ForkBodySchema), async c => {
@@ -217,44 +219,60 @@ sessionRoutes.post('/:id/fork', zValidator('json', ForkBodySchema), async c => {
   }
   const p = parent.value
 
-  // name is the new session's globally-unique identity (rename == fork+delete).
-  const newName = b.name
-  const newBranch = b.branch && b.branch !== '' ? b.branch : newName
-
-  // Copy the jj bookmark via repo-manager (best-effort, warn on failure).
-  void fetch(
-    `${deps.config.repoManagerUrl.replace(/\/$/, '')}/api/v1/repos/bookmark-from`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: stringify({
-        org: p.org,
-        repo: p.repo,
-        source_branch: p.branch,
-        new_branch: newBranch,
-      }),
-    },
-  ).catch(e => {
-    console.warn(`[agent] bookmark-from failed (${pid}): ${String(e)}`)
-  })
+  const exists = await Sessions.exists(deps.db, b.name)
+  if (exists.isErr()) return err500(c, exists.error)
+  if (exists.value) {
+    return c.json({ ok: false, error: 'Session already exists' }, 409)
+  }
 
   const name = await Sessions.create(deps.db, {
-    name: newName,
-    org: p.org,
-    repo: p.repo,
-    branch: newBranch,
+    name: b.name,
     model: p.model,
     preset: p.preset,
-    parentName: p.name,
     tipId: p.tip_id,
-    forkAtMsgId: p.tip_id,
-    maxTurns: p.max_turns ?? undefined,
-    systemPrompt: p.system_prompt ?? undefined,
   })
   return name.isErr()
     ? err500(c, name.error)
     : c.json({ ok: true, session_name: name.value })
 })
+
+sessionRoutes.post(
+  '/:id/rename',
+  zValidator('json', RenameBodySchema),
+  async c => {
+    const deps = c.get('deps')
+    const oldName = c.req.param('id')
+    const b = c.req.valid('json')
+
+    if (b.name === oldName) {
+      return c.json({ ok: true, session_name: oldName })
+    }
+    const parent = await Sessions.get(deps.db, oldName)
+    if (parent.isErr()) return err500(c, parent.error)
+    if (parent.value === null) {
+      return c.json({ ok: false, error: 'session not found' }, 404)
+    }
+    const exists = await Sessions.exists(deps.db, b.name)
+    if (exists.isErr()) return err500(c, exists.error)
+    if (exists.value) {
+      return c.json({ ok: false, error: 'Session already exists' }, 409)
+    }
+    const p = parent.value
+
+    // rename = fork (copy tip) into the new name + delete the old name.
+    // Messages are shared COW; deleting the old session leaves history intact.
+    const created = await Sessions.create(deps.db, {
+      name: b.name,
+      model: p.model,
+      preset: p.preset,
+      tipId: p.tip_id,
+    })
+    if (created.isErr()) return err500(c, created.error)
+    const removed = await Sessions.delete(deps.db, oldName)
+    if (removed.isErr()) return err500(c, removed.error)
+    return c.json({ ok: true, session_name: b.name })
+  },
+)
 
 sessionRoutes.post(
   '/:id/model',
@@ -291,28 +309,12 @@ sessionRoutes.post('/:id/undo', zValidator('json', UndoBodySchema), async c => {
   if (target.isErr()) return err500(c, target.error)
   if (target.value === null) return c.json({ ok: false, undone: false })
 
-  const removed = await Messages.deleteAfter(deps.db, targetId)
-  if (removed.isErr()) return err500(c, removed.error)
+  // undo == move the tip pointer back; messages are append-only and never
+  // physically deleted (COW). At the chain head this becomes a no-op.
   await Sessions.setTip(deps.db, sid, target.value.prev_id)
 
-  // Roll back the jj working-copy change (best-effort).
-  try {
-    await fetch(
-      `${deps.config.repoManagerUrl.replace(/\/$/, '')}/api/v1/git-undo`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: stringify({ org: s.org, repo: s.repo, branch: s.branch }),
-      },
-    )
-  } catch (e) {
-    console.warn(`[agent] git-undo failed (${sid}): ${String(e)}`)
-  }
-
-  return c.json({ ok: true, undone: true, deleted: removed.value.length })
+  return c.json({ ok: true, undone: true })
 })
-
-sessionRoutes.post('/:id/redo', async c => c.json({ ok: true, redone: false }))
 
 sessionRoutes.post('/:id/read', async c => c.json({ ok: true }))
 
@@ -364,8 +366,6 @@ sessionRoutes.patch(
     const r = await Sessions.updateSettings(db, sid, {
       model: b.model,
       preset: b.preset,
-      maxTurns: b.max_turns,
-      systemPrompt: b.system_prompt,
     })
     if (r.isErr()) return err500(c, r.error)
     const s = await Sessions.get(db, sid)
@@ -388,7 +388,7 @@ sessionRoutes.post('/:id/interrupt', async c => {
   void deps.bus
     .publishStream(mailboxSubject(sid), {
       type: 'interrupt',
-      session_id: sid,
+      session_name: sid,
     })
     .then(() => undefined)
   void triggerClaim(deps, sid)

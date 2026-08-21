@@ -1,13 +1,21 @@
 import { jsonSchema, type Tool } from 'ai'
-import type { Bus, ToolResultEnvelope } from './bus.js'
+import { ResultAsync } from 'neverthrow'
+import { z } from 'zod'
+import type { Bus } from './bus.js'
 import { toolCallSubject, toolResultSubject } from './bus.js'
-import { parseLoose } from './db-client.js'
+import {
+  parse,
+  type ToolResult,
+  type ToolResultEnvelope,
+  ToolResultEnvelopeSchema,
+} from './json.js'
 
-export interface SessionCtx {
-  org: string
-  repo: string
-  branch: string
-}
+export const ToolManifestSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  input_schema: z.record(z.string(), z.unknown()).optional(),
+})
+const ToolListSchema = z.object({ tools: z.array(ToolManifestSchema) })
 
 export interface DiscoveredTool {
   name: string
@@ -16,52 +24,35 @@ export interface DiscoveredTool {
   inputSchema: Record<string, unknown>
 }
 
-/** Inject `_org`/`_repo`/`_branch`, preserving LLM-supplied values. */
-export function injectSessionCtx(
-  args: Record<string, unknown>,
-  ctx: SessionCtx,
-): Record<string, unknown> {
-  return {
-    _org: ctx.org,
-    _repo: ctx.repo,
-    _branch: ctx.branch,
-    ...args,
-  }
-}
-
-/** Discover tools from all tool servers' manifest endpoints. */
+/**
+ * Discover tools from all tool servers' manifest endpoints. A server that is
+ * unreachable or returns an invalid manifest is skipped.
+ */
 export async function discoverTools(
   servers: string[],
 ): Promise<DiscoveredTool[]> {
   const out: DiscoveredTool[] = []
   for (const base of servers) {
     const url = `${base.replace(/\/$/, '')}/api/v1/tools`
-    try {
-      const res = await fetch(url)
-      if (!res.ok) continue
-      const body = (await res.json()) as { tools?: DiscoveredTool[] }
-      for (const t of body.tools ?? []) {
-        if (typeof t.name === 'string' && typeof t.description === 'string') {
-          out.push({
-            name: t.name,
-            description: t.description,
-            inputSchema:
-              t.inputSchema && typeof t.inputSchema === 'object'
-                ? t.inputSchema
-                : { type: 'object', properties: {} },
-          })
-        }
+    const result = await ResultAsync.fromPromise(
+      fetch(url).then(r =>
+        r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)),
+      ),
+      () => null,
+    )
+    if (result.isErr()) continue
+    const parsed = parse(ToolListSchema, JSON.stringify(result.value))
+    if (parsed.isOk()) {
+      for (const t of parsed.value.tools) {
+        out.push({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.input_schema ?? { type: 'object', properties: {} },
+        })
       }
-    } catch {
-      // tool server unreachable: skip it
     }
   }
   return out
-}
-
-export interface ToolBridgeOutput {
-  content: string
-  result?: unknown
 }
 
 /**
@@ -70,82 +61,94 @@ export interface ToolBridgeOutput {
  * Store blob) on `tool.result.{call_id}`. Subscribe BEFORE publishing so an
  * instantly-answering tool server cannot race us.
  */
-export async function invokeToolViaBus(
+export function invokeToolViaBus(
   bus: Bus,
   name: string,
   callId: string,
   args: Record<string, unknown>,
   timeoutMs: number,
-): Promise<ToolBridgeOutput> {
-  const subRes = await bus.subscribe(toolResultSubject(callId))
-  if (subRes.isErr()) throw new Error(subRes.error)
-  const sub = subRes.value
+): ResultAsync<ToolResult, string> {
+  return bus
+    .subscribe(toolResultSubject(callId))
+    .andThen(sub =>
+      bus
+        .publish(toolCallSubject(name), { call_id: callId, arguments: args })
+        .map(() => sub),
+    )
+    .andThen(sub =>
+      ResultAsync.fromPromise(
+        Promise.race([firstResult(sub, name), timeout(name, timeoutMs)]),
+        e => `tool '${name}': ${e instanceof Error ? e.message : String(e)}`,
+      ).andThen(env => resolveContent(bus, env)),
+    )
+}
 
-  const pubRes = await bus.publish(toolCallSubject(name), {
-    call_id: callId,
-    arguments: args,
+function firstResult(
+  sub: AsyncIterable<{ data: Uint8Array }>,
+  name: string,
+): Promise<ToolResultEnvelope> {
+  return new Promise((resolve, reject) => {
+    void (async () => {
+      for await (const m of sub) {
+        const parsed = parse(ToolResultEnvelopeSchema, m.data)
+        if (parsed.isOk()) {
+          resolve(parsed.value)
+          return
+        }
+      }
+      reject(new Error(`tool '${name}' result stream closed`))
+    })()
   })
-  if (pubRes.isErr()) {
-    sub.unsubscribe()
-    throw new Error(pubRes.error)
-  }
+}
 
-  const first = (async (): Promise<ToolResultEnvelope> => {
-    for await (const m of sub) {
-      const parsed = parseLoose(Buffer.from(m.data))
-      if (parsed.isOk()) return parsed.value as ToolResultEnvelope
-    }
-    throw new Error(`tool '${name}' result stream closed`)
-  })()
-
-  let handle: ReturnType<typeof setTimeout> | undefined
-  const timer = new Promise<never>((_, reject) => {
-    handle = setTimeout(() => {
-      reject(new Error(`tool '${name}' timed out`))
-    }, timeoutMs)
+function timeout(name: string, timeoutMs: number): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`tool '${name}' timed out`)), timeoutMs)
   })
+}
 
-  try {
-    const env = await Promise.race([first, timer])
-    if (env.content_object !== undefined && env.content_object !== null) {
-      const blob = await bus.getObject(env.content_object)
-      return { content: blob.toString(), result: env.result }
-    }
-    return { content: env.content ?? '', result: env.result }
-  } catch (e) {
-    first.catch(() => {}) // losing the race: swallow the loser's rejection
-    throw e
-  } finally {
-    if (handle !== undefined) clearTimeout(handle)
-    sub.unsubscribe()
+/**
+ * Normalize an envelope into the canonical ToolResult. When a large payload
+ * was offloaded to the Object Store (`content_object`), the full text is
+ * fetched back; `metadata` is always forwarded from the envelope verbatim.
+ */
+function resolveContent(
+  bus: Bus,
+  env: ToolResultEnvelope,
+): ResultAsync<ToolResult, string> {
+  if (env.content_object !== undefined) {
+    return bus
+      .getObject(env.content_object)
+      .map(bytes => ({ content: bytes.toString(), metadata: env.metadata }))
   }
+  return ResultAsync.fromSafePromise(
+    Promise.resolve({ content: env.content, metadata: env.metadata }),
+  )
 }
 
 /** Build the AI SDK tool set from discovered manifests. */
 export function buildAiTools(
   discovered: DiscoveredTool[],
-  ctx: SessionCtx,
   bus: Bus,
   timeoutMs: number,
-): Record<string, Tool> {
-  const tools: Record<string, Tool> = {}
+): Record<string, Tool<Record<string, unknown>, ToolResult>> {
+  const tools: Record<string, Tool<Record<string, unknown>, ToolResult>> = {}
   for (const t of discovered) {
     tools[t.name] = {
       description: t.description,
-      inputSchema: jsonSchema(t.inputSchema as never),
-      execute: async (args: Record<string, unknown>, { toolCallId }) => {
-        const merged = injectSessionCtx(args ?? {}, ctx)
-        try {
-          return await invokeToolViaBus(
-            bus,
-            t.name,
-            toolCallId,
-            merged,
-            timeoutMs,
-          )
-        } catch (e) {
-          return { content: `tool '${t.name}' failed: ${String(e)}` }
-        }
+      inputSchema: jsonSchema(t.inputSchema),
+      execute: async (args, { toolCallId }) => {
+        const result = await invokeToolViaBus(
+          bus,
+          t.name,
+          toolCallId,
+          args ?? {},
+          timeoutMs,
+        )
+        return result.match(
+          output => output,
+          e => ({ content: `tool '${t.name}' failed: ${e}`, metadata: null }),
+        )
       },
     }
   }

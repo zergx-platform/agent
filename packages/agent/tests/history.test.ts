@@ -62,6 +62,7 @@ describe('rebuildHistory', () => {
         part('m2', 1, 'tool_result', {
           tool_use_id: 't1',
           content: 'a.txt',
+          metadata: null,
         }),
       ],
     )

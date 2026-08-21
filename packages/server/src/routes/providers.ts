@@ -5,6 +5,7 @@ import {
   ProviderTestBodySchema,
 } from '@rucoder-agent/schema'
 import { Hono } from 'hono'
+import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
 
@@ -80,21 +81,30 @@ providerRoutes.post(
     c.get('deps')
     const b = c.req.valid('json')
     const url = `${b.base_url.replace(/\/$/, '')}/models`
-    try {
-      const res = await fetch(url, {
+    const result = await ResultAsync.fromPromise(
+      fetch(url, {
         headers:
           b.api_key !== undefined && b.api_key !== ''
             ? { authorization: `Bearer ${b.api_key}` }
             : {},
         signal: AbortSignal.timeout(10_000),
-      })
-      if (!res.ok) {
-        return c.json({ ok: false, error: `HTTP ${res.status}` })
-      }
-      const body = (await res.json()) as { data?: unknown[] }
-      return c.json({ ok: true, models: body.data ?? null })
-    } catch (e) {
-      return c.json({ ok: false, error: String(e) })
+      }),
+      () => 'provider test: network error',
+    )
+    if (result.isErr()) {
+      return c.json({ ok: false, error: result.error })
     }
+    const res = result.value
+    if (!res.ok) {
+      return c.json({ ok: false, error: `HTTP ${res.status}` })
+    }
+    const body = await ResultAsync.fromPromise(
+      res.json().then(v => v as { data?: unknown[] }),
+      () => 'provider test: invalid json',
+    )
+    if (body.isErr()) {
+      return c.json({ ok: false, error: body.error })
+    }
+    return c.json({ ok: true, models: body.value.data ?? null })
   },
 )

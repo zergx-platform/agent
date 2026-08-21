@@ -100,33 +100,6 @@ export const Messages = {
       return chain.reverse().map(toRow)
     }, 'query message chain')
   },
-
-  /**
-   * Delete `targetId` and every message after it in the chain. Returns the
-   * removed ids (in chain order). The new tip becomes the target's prev_id,
-   * which the caller sets.
-   */
-  deleteAfter(db: Db, targetId: string): ResultAsync<string[], string> {
-    return q(async () => {
-      const rows = await db
-        .select({ id: messages.id, prevId: messages.prevId })
-        .from(messages)
-      const byPrev = new Map<string, string>()
-      for (const r of rows) {
-        if (r.prevId !== null) byPrev.set(r.prevId, r.id)
-      }
-      const removed: string[] = []
-      let cursor: string | null = targetId
-      while (cursor !== null) {
-        removed.push(cursor)
-        cursor = byPrev.get(cursor) ?? null
-      }
-      for (const id of removed) {
-        await db.delete(messages).where(eq(messages.id, id))
-      }
-      return removed
-    }, 'delete messages after')
-  },
 }
 
 type Row = typeof messages.$inferSelect

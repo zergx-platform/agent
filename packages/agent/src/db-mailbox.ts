@@ -4,11 +4,10 @@ import type { ResultAsync } from 'neverthrow'
 import type { Db } from './db-client.js'
 import { nowStr, q, rowsOf, uuid } from './db-client.js'
 import { mailbox } from './db-schema.js'
-import { stringify } from './json.js'
 
 const toRow = (r: typeof mailbox.$inferSelect): MailboxRow => ({
   id: r.id,
-  session_id: r.sessionId,
+  session_name: r.sessionName,
   msg_type: r.msgType,
   payload: r.payload,
   effective_at: r.effectiveAt,
@@ -21,7 +20,7 @@ const toRow = (r: typeof mailbox.$inferSelect): MailboxRow => ({
 export const Mailbox = {
   enqueue(
     db: Db,
-    sessionId: string,
+    sessionName: string,
     msgType: string,
     payload: unknown,
   ): ResultAsync<string, string> {
@@ -30,9 +29,9 @@ export const Mailbox = {
       () =>
         db.insert(mailbox).values({
           id,
-          sessionId,
+          sessionName,
           msgType,
-          payload: stringify(payload ?? {}),
+          payload: JSON.stringify(payload ?? {}),
           status: 'pending',
           createdAt: nowStr(),
         }),
@@ -40,13 +39,13 @@ export const Mailbox = {
     ).map(() => id)
   },
 
-  list(db: Db, sessionId: string): ResultAsync<MailboxRow[], string> {
+  list(db: Db, sessionName: string): ResultAsync<MailboxRow[], string> {
     return q(
       () =>
         db
           .select()
           .from(mailbox)
-          .where(eq(mailbox.sessionId, sessionId))
+          .where(eq(mailbox.sessionName, sessionName))
           .then(rows => rows.map(toRow)),
       'list mailbox',
     )
@@ -58,9 +57,9 @@ export const Mailbox = {
       () =>
         db
           .execute(
-            dsql`SELECT DISTINCT session_id FROM mailbox WHERE status = 'pending'`,
+            dsql`SELECT DISTINCT session_name FROM mailbox WHERE status = 'pending'`,
           )
-          .then(res => rowsOf(res).map(r => String(r.session_id))),
+          .then(res => rowsOf(res).map(r => String(r.session_name))),
       'pending sessions',
     )
   },
@@ -69,7 +68,10 @@ export const Mailbox = {
    * Atomically pop the next pending item (ordered). The UPDATE-with-subquery
    * keeps concurrent replicas from consuming the same row.
    */
-  drainOne(db: Db, sessionId: string): ResultAsync<MailboxRow | null, string> {
+  drainOne(
+    db: Db,
+    sessionName: string,
+  ): ResultAsync<MailboxRow | null, string> {
     return q(
       () =>
         db
@@ -77,12 +79,12 @@ export const Mailbox = {
             dsql`UPDATE mailbox SET status = 'consumed', consumed_at = ${nowStr()}
                WHERE id = (
                  SELECT id FROM mailbox
-                 WHERE session_id = ${sessionId} AND status = 'pending'
+                 WHERE session_name = ${sessionName} AND status = 'pending'
                  ORDER BY COALESCE(effective_at, created_at) ASC, COALESCE(seq, 0) ASC, created_at ASC
                  LIMIT 1
                  FOR UPDATE SKIP LOCKED
                )
-               RETURNING id, session_id, msg_type, payload, effective_at, status, created_at, consumed_at, seq`,
+               RETURNING id, session_name, msg_type, payload, effective_at, status, created_at, consumed_at, seq`,
           )
           .then(res => {
             const rows = rowsOf(res)
@@ -90,7 +92,7 @@ export const Mailbox = {
             if (r === undefined) return null
             return {
               id: String(r.id),
-              session_id: String(r.session_id),
+              session_name: String(r.session_name),
               msg_type: String(r.msg_type),
               payload: String(r.payload),
               effective_at: (r.effective_at as string | null) ?? null,
@@ -104,14 +106,17 @@ export const Mailbox = {
     )
   },
 
-  hasPendingInterrupt(db: Db, sessionId: string): ResultAsync<boolean, string> {
+  hasPendingInterrupt(
+    db: Db,
+    sessionName: string,
+  ): ResultAsync<boolean, string> {
     return q(
       () =>
         db
           .execute(
             dsql`SELECT EXISTS(
                  SELECT 1 FROM mailbox
-                 WHERE session_id = ${sessionId} AND msg_type = 'interrupt' AND status = 'pending'
+                 WHERE session_name = ${sessionName} AND msg_type = 'interrupt' AND status = 'pending'
                ) AS ok`,
           )
           .then(res => rowsOf(res)[0]?.ok === true),

@@ -8,20 +8,9 @@ import {
 
 export const sessions = pgTable('sessions', {
   name: text('name').primaryKey(),
-  org: text('org').notNull(),
-  repo: text('repo').notNull(),
-  branch: text('branch').notNull(),
   model: text('model').notNull().default(''),
   preset: text('preset').notNull().default(''),
   tipId: text('tip_id'),
-  parentId: text('parent_id'),
-  forkAtMsgId: text('fork_at_msg_id'),
-  workerUrl: text('worker_url'),
-  containerId: text('container_id'),
-  maxTurns: integer('max_turns'),
-  systemPrompt: text('system_prompt'),
-  revert: text('revert'),
-  redoTipId: text('redo_tip_id'),
   lastReadAt: text('last_read_at'),
   inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
   outputTokens: bigint('output_tokens', { mode: 'number' })
@@ -59,7 +48,7 @@ export const parts = pgTable('parts', {
 
 export const mailbox = pgTable('mailbox', {
   id: text('id').primaryKey(),
-  sessionId: text('session_id')
+  sessionName: text('session_name')
     .notNull()
     .references(() => sessions.name, { onDelete: 'cascade' }),
   msgType: text('msg_type').notNull(),

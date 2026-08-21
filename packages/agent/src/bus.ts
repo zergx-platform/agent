@@ -8,7 +8,8 @@ import {
   type Subscription,
 } from 'nats'
 import { ResultAsync } from 'neverthrow'
-import { parseLoose, stringify } from './json.js'
+import { z } from 'zod'
+import { parse, parseLoose } from './json.js'
 
 // Stream / subject topology — must stay byte-compatible with rucoder-sdk-bus
 // (the Rust side) so both agent replicas interoperate on the same cluster.
@@ -35,14 +36,6 @@ export interface ToolCallEnvelope {
   arguments: Record<string, unknown>
 }
 
-export interface ToolResultEnvelope {
-  call_id: string
-  tool: string
-  content: string
-  content_object?: string
-  result?: unknown
-}
-
 const STREAMS: Array<{ name: string; subjects: string[] }> = [
   { name: STREAM_MAILBOX, subjects: ['mailbox.session.>'] },
   { name: STREAM_SSE, subjects: ['sse.session.>'] },
@@ -56,7 +49,7 @@ const DAY_NS = 24 * 3600 * 1_000_000_000
 const SESSION_LEASE_MS = 30_000
 
 export interface WakeMessage {
-  session_id: string
+  session_name: string
   type: 'user_prompt' | 'interrupt' | 'event'
 }
 
@@ -71,7 +64,7 @@ export class Bus {
   publish(subject: string, payload: unknown): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
       Promise.resolve(
-        this.nc.publish(subject, Buffer.from(stringify(payload))),
+        this.nc.publish(subject, Buffer.from(JSON.stringify(payload))),
       ),
       e => `publish ${subject}: ${String(e)}`,
     )
@@ -81,7 +74,7 @@ export class Bus {
   publishStream(subject: string, payload: unknown): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
       this.js
-        .publish(subject, Buffer.from(stringify(payload)))
+        .publish(subject, Buffer.from(JSON.stringify(payload)))
         .then(() => undefined),
       e => `stream publish ${subject}: ${String(e)}`,
     )
@@ -115,9 +108,8 @@ export class Bus {
     ).orElse(err => {
       // 10071 == "wrong last sequence" (key already exists). This is the
       // expected contention case, not a genuine error.
-      const code = (err as unknown as { api_error?: { err_code?: number } })
-        .api_error?.err_code
-      if (code === 10071) {
+      const apiError = parseClaimError(err)
+      if (apiError === 10071) {
         return ResultAsync.fromSafePromise<boolean, string>(
           Promise.resolve(false),
         )
@@ -176,11 +168,9 @@ export class Bus {
       (async () => {
         const os = await this.js.views.os(BUCKET_TOOL)
         const view = await os.get(name)
-        if (view === null) throw new Error(`object not found: ${name}`)
+        if (view === null) return Buffer.alloc(0)
         const chunks: Buffer[] = []
-        const reader = (
-          view as { data: ReadableStream<Uint8Array> }
-        ).data.getReader()
+        const reader = view.data.getReader()
         for (;;) {
           const { done, value } = await reader.read()
           if (done) break
@@ -204,25 +194,10 @@ export function connectBus(url: string): ResultAsync<Bus, string> {
       const js = nc.jetstream()
       const jsm = await nc.jetstreamManager()
       for (const s of STREAMS) {
-        try {
-          await jsm.streams.info(s.name)
-        } catch {
-          await jsm.streams.add({
-            name: s.name,
-            subjects: s.subjects,
-            max_age: DAY_NS,
-          })
-        }
+        await ensureStream(jsm, s)
       }
-      try {
-        await js.views.os(BUCKET_TOOL)
-      } catch {
-        await js.views.os({
-          bucket: BUCKET_TOOL,
-          description: 'rucoder tool results',
-          ttl: DAY_NS,
-        } as never)
-      }
+      // Object store for large tool results.
+      await ensureObjectStore(js)
       // Per-session run-state KV with a TTL so crashed holders self-release.
       const sessionState = await js.views.kv(BUCKET_SESSION_STATE, {
         history: 1,
@@ -235,6 +210,35 @@ export function connectBus(url: string): ResultAsync<Bus, string> {
   )
 }
 
+type JetStreamManager = import('nats').JetStreamManager
+
+function ensureStream(
+  jsm: JetStreamManager,
+  s: { name: string; subjects: string[] },
+): Promise<unknown> {
+  return jsm.streams.info(s.name).then(
+    () => undefined,
+    () =>
+      jsm.streams.add({
+        name: s.name,
+        subjects: s.subjects,
+        max_age: DAY_NS,
+      }),
+  )
+}
+
+function ensureObjectStore(js: JetStreamClient): Promise<unknown> {
+  return js.views.os(BUCKET_TOOL).then(
+    () => undefined,
+    () =>
+      js.views.os({
+        bucket: BUCKET_TOOL,
+        description: 'rucoder tool results',
+        ttl: DAY_NS,
+      } as never),
+  )
+}
+
 /** Adapt a NATS subscription to an async iterator of parsed JSON values. */
 export async function* subscriptionToIterator(
   sub: Sub<import('nats').Msg>,
@@ -243,4 +247,15 @@ export async function* subscriptionToIterator(
     const parsed = parseLoose(Buffer.from(m.data))
     if (parsed.isOk()) yield parsed.value
   }
+}
+
+const ClaimErrorSchema = z.object({
+  api_error: z.object({ err_code: z.number() }).optional(),
+})
+
+function parseClaimError(err: string): number | undefined {
+  return parse(ClaimErrorSchema, err).match(
+    v => v.api_error?.err_code,
+    () => undefined,
+  )
 }
