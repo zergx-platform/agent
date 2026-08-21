@@ -177,7 +177,8 @@ export class Bus {
         for (;;) {
           const consumer = await this.js.consumers.get(stream, {
             filterSubjects: subject,
-            deliver_policy: DeliverPolicy.All,
+            deliver_policy: DeliverPolicy.StartSequence,
+            opt_start_seq: 1,
           })
           const iter = await consumer.fetch({
             expires: 1000,
