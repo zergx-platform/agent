@@ -1,19 +1,23 @@
 # syntax=docker/dockerfile:1
-FROM recoder-dev002.develop.10.199.64.20.nip.io/node:26-alpine AS build
+# Base images default to the in-cluster Zot registry (buildkitd trusts it as
+# an insecure registry); override with --build-arg when building elsewhere.
+ARG REGISTRY=rucoder-zot.temp.10.199.64.20.nip.io
+FROM ${REGISTRY}/node:26-alpine AS build
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
-ENV HTTP_PROXY=${HTTP_PROXY:-http://mihomo.develop.svc.cluster.local:7890} \
-    HTTPS_PROXY=${HTTPS_PROXY:-http://mihomo.develop.svc.cluster.local:7890} \
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
     NO_PROXY=localhost,127.0.0.1,.svc.cluster.local,.svc,.nip.io
 WORKDIR /build
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY scripts scripts
 COPY packages packages
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts \
     && npm rebuild esbuild \
     && npm run build
 
-FROM recoder-dev002.develop.10.199.64.20.nip.io/node:26-alpine
+FROM ${REGISTRY}/node:26-alpine
 RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=build /build/package.json ./
