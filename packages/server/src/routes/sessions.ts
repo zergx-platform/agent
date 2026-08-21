@@ -61,12 +61,10 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
   }
   return streamSSE(c, async stream => {
     const subject = sseSubject(sid)
-    console.log(`[sse] connected sid=${sid} subject=${subject}`)
 
     // Subscribe live BEFORE replaying so the handover can overlap, not drop.
     const subRes = await bus.subscribe(subject)
     if (subRes.isErr()) {
-      console.log(`[sse] subscribe failed: ${subRes.error}`)
       await stream.writeSSE({
         data: JSON.stringify({
           event: 'error',
@@ -76,7 +74,6 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
       return
     }
     const sub = subRes.value
-    console.log(`[sse] subscribed`)
 
     let closed = false
     stream.onAbort(() => {
@@ -86,7 +83,6 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
 
     const dedup = new EidDedup()
     const replay = await bus.replayAll(STREAM_SSE, subject)
-    console.log(`[sse] replay done, isOk=${replay.isOk()}, n=${replay.isOk() ? replay.value.length : replay.error}`)
     if (replay.isOk()) {
       for (const raw of replay.value) {
         const v = EidEventSchema.safeParse(raw)
@@ -101,7 +97,6 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
       if (!parsed.isOk()) continue
       const v = parsed.value
       if (dedup.duplicate(v.eid)) continue
-      console.log(`[sse] live event=${v.event}`)
       await stream.writeSSE({ data: JSON.stringify(v) })
     }
   })
