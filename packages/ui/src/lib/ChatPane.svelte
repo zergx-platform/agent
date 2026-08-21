@@ -169,51 +169,61 @@
   <header class="shrink-0 px-4 py-2 border-b border-border flex items-center gap-2 text-sm">
     <span class="font-medium">{active.name}</span>
     <div class="flex-1"></div>
-    <button
-      class="text-muted hover:text-fg p-1"
-      onclick={() => (showMailbox = true)}
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Mailbox"
       title="Mailbox"
+      onclick={() => (showMailbox = true)}
     >
       <Mailbox class="size-4" />
-    </button>
-    <button
-      class="text-muted hover:text-fg p-1"
-      onclick={undo}
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Undo"
       title="Undo"
+      onclick={undo}
     >
       <Undo2 class="size-4" />
-    </button>
-    <button
-      class="text-muted hover:text-fg p-1"
-      onclick={fork}
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Fork"
       title="Fork"
+      onclick={fork}
     >
       <GitFork class="size-4" />
-    </button>
-    <button
-      class="text-muted hover:text-fg p-1"
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Rename"
+      title="Rename"
       onclick={() => {
         renameInput = active.name
         showRename = true
       }}
-      title="Rename"
     >
       <FilePenLine class="size-4" />
-    </button>
-    <button
-      class="text-muted hover:text-fg p-1"
-      onclick={() => (showSettings = true)}
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Settings"
       title="Settings"
+      onclick={() => (showSettings = true)}
     >
       <Settings2 class="size-4" />
-    </button>
+    </Button>
   </header>
 
   <div class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4" use:scrollToBottom={messages.length + (assistantBuf.length > 0 ? 1 : 0)}>
     {#each messages as m (m.id)}
       <div class="flex {m.role === 'user' ? 'justify-end' : 'justify-start'}">
         <div
-          class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap {m.role === 'user' ? 'bg-user' : 'bg-assistant'}"
+          class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap {m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}"
         >
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
           {#if m.role === 'assistant'}
@@ -227,14 +237,14 @@
 
     {#if assistantBuf !== ''}
       <div class="flex justify-start">
-        <div class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-assistant">
+        <div class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-muted">
           {@html markdown(assistantBuf)}
         </div>
       </div>
     {/if}
 
     {#if streaming && assistantBuf === ''}
-      <div class="text-muted text-sm">Thinking…</div>
+      <div class="text-muted-foreground text-sm">Thinking…</div>
     {/if}
   </div>
 
@@ -243,7 +253,7 @@
       <SettingsPanel {active} onrefresh={onrefresh} />
     </div>
     {#if error}
-      <div class="text-red-400 text-xs mb-2">{error}</div>
+      <div class="text-destructive text-xs mb-2">{error}</div>
     {/if}
     <div class="flex gap-2 items-end">
       <Textarea

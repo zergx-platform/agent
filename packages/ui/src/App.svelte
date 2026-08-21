@@ -56,25 +56,29 @@
 </script>
 
 <div class="flex h-full">
-  <aside class="w-72 shrink-0 border-r border-bg flex flex-col bg-panel">
+  <aside class="w-72 shrink-0 border-r border-border flex flex-col bg-card">
     <div class="p-3 border-b border-border">
       <div class="flex items-center justify-between">
         <h1 class="text-sm font-semibold">rucoder-agent</h1>
         <div class="flex gap-1">
-          <button
-            class="text-muted hover:text-fg p-1 rounded"
-            onclick={() => (showPresets = true)}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Presets"
             title="Presets"
+            onclick={() => (showPresets = true)}
           >
             <Wrench class="size-4" />
-          </button>
-          <button
-            class="text-muted hover:text-fg p-1 rounded"
-            onclick={() => (showProviders = true)}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Providers"
             title="Providers"
+            onclick={() => (showProviders = true)}
           >
             <Settings class="size-4" />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -99,7 +103,7 @@
     {#if active}
       <ChatPane {active} onrefresh={refresh} />
     {:else}
-      <div class="h-full flex items-center justify-center text-muted text-sm">
+      <div class="h-full flex items-center justify-center text-muted-foreground text-sm">
         Select or create a session to start chatting
       </div>
     {/if}
@@ -116,7 +120,7 @@
 
 {#if error}
   <div
-    class="fixed bottom-4 right-4 bg-red-900/80 text-fg text-sm px-3 py-2 rounded"
+    class="fixed bottom-4 right-4 bg-destructive/20 text-destructive-foreground text-sm px-3 py-2 rounded"
     onclick={() => (error = '')}
   >
     {error}

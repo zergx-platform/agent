@@ -30,19 +30,19 @@
 
     <div class="flex flex-col gap-2 max-h-[70vh] overflow-y-auto">
       {#if entries.length === 0}
-        <div class="text-muted text-sm">No mailbox entries.</div>
+        <div class="text-muted-foreground text-sm">No mailbox entries.</div>
       {/if}
       {#each entries as e (e.id)}
-        <div class="bg-panel2 rounded px-3 py-2 text-xs">
+        <div class="bg-muted rounded px-3 py-2 text-xs">
           <div class="flex gap-2">
-            <span class="text-muted">{e.msg_type}</span>
-            <span class="text-muted">{e.status}</span>
+            <span class="text-muted-foreground">{e.msg_type}</span>
+            <span class="text-muted-foreground">{e.status}</span>
           </div>
-          <div class="text-muted truncate">{e.payload}</div>
+          <div class="text-muted-foreground truncate">{e.payload}</div>
         </div>
       {/each}
       {#if error}
-        <div class="text-red-400 text-xs">{error}</div>
+        <div class="text-destructive text-xs">{error}</div>
       {/if}
     </div>
   </Dialog.Content>

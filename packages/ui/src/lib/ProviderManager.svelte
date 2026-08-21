@@ -135,47 +135,48 @@
 
     <div class="flex flex-col gap-3 max-h-[70vh] overflow-y-auto">
       {#if list.length === 0}
-        <div class="text-muted text-sm">No providers registered.</div>
+        <div class="text-muted-foreground text-sm">No providers registered.</div>
       {/if}
 
       {#each list as p (p.provider_id)}
-        <div class="flex items-center gap-2 bg-panel2 rounded px-3 py-2">
-          <Check class="size-4 text-green-400 shrink-0" />
+        <div class="flex items-center gap-2 bg-muted rounded px-3 py-2">
+          <Check class="size-4 text-emerald-400 shrink-0" />
           <div class="flex-1 min-w-0">
             <div class="text-sm font-medium">{p.provider_id}</div>
-            <div class="text-xs text-muted truncate">
+            <div class="text-xs text-muted-foreground truncate">
               {p.api_type} · {p.base_url}
             </div>
           </div>
-          <button
-            class="text-muted hover:text-red-400 p-1"
-            onclick={() => remove(p.provider_id)}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Delete"
             title="Delete"
+            onclick={() => remove(p.provider_id)}
           >
-            <Trash2 class="size-4" />
-          </button>
+            <Trash2 class="text-destructive size-4" />
+          </Button>
         </div>
       {/each}
 
       <div class="border-t border-border pt-3 flex flex-col gap-2">
-        <div class="text-xs text-muted font-medium uppercase">Register new</div>
+        <div class="text-xs text-muted-foreground font-medium uppercase">Register new</div>
         <NativeSelect bind:value={pid}>
           <option value="" disabled>pick from catalog…</option>
           {#each catalogList as item (item.id)}
             <option value={item.id}>{item.name}</option>
           {/each}
         </NativeSelect>
-        <button
-          class="text-xs text-left text-accent"
+        <Button
+          variant="ghost"
+          class="text-xs text-left h-auto py-1 px-0 justify-start"
           onclick={() => {
             const item = catalogList.find(c => c.id === pid)
             if (item) prefill(item)
           }}
         >
-          <span class="inline-flex items-center gap-1">
-            <RefreshCw class="size-3" /> prefill from catalog
-          </span>
-        </button>
+          <RefreshCw class="size-3" /> prefill from catalog
+        </Button>
         <Input bind:value={pid} placeholder="provider_id" />
         <NativeSelect bind:value={apiType}>
           <option value="openai-compatible">openai-compatible</option>
@@ -191,15 +192,17 @@
           placeholder="api_key (optional)"
         />
         {#if catalogList.length > 0}
-          <div class="text-xs text-muted font-medium">Models</div>
+          <div class="text-xs text-muted-foreground font-medium">Models</div>
           <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
             {#each modelChoices as m (m)}
-              <button
-                class="text-xs px-2 py-1 rounded border {selectedModels.includes(m) ? 'bg-accent/30 border-accent' : 'bg-panel2 border-border'}"
+              <Button
+                variant={selectedModels.includes(m) ? 'secondary' : 'outline'}
+                size="xs"
+                class="rounded-full"
                 onclick={() => toggleModel(m)}
               >
                 {m}
-              </button>
+              </Button>
             {/each}
           </div>
         {/if}
@@ -220,12 +223,12 @@
           </Button>
         </div>
         {#if testResult !== ''}
-          <div class="text-xs text-muted">{testResult}</div>
+          <div class="text-xs text-muted-foreground">{testResult}</div>
         {/if}
       </div>
 
       {#if error}
-        <div class="text-red-400 text-xs">{error}</div>
+        <div class="text-destructive text-xs">{error}</div>
       {/if}
     </div>
   </Dialog.Content>

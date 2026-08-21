@@ -54,8 +54,8 @@
   onMount(load)
 </script>
 
-<div class="bg-panel2 rounded p-3 flex flex-col gap-2 text-sm">
-  <div class="text-xs font-medium uppercase text-muted">Session settings</div>
+<div class="bg-muted rounded p-3 flex flex-col gap-2 text-sm">
+  <div class="text-xs font-medium uppercase text-muted-foreground">Session settings</div>
   <div class="flex items-center gap-2">
     <Label class="w-16 text-muted-foreground text-xs">model</Label>
     <NativeSelect class="flex-1" bind:value={model}>
@@ -81,6 +81,6 @@
     {saving ? 'Saving…' : 'Save'}
   </Button>
   {#if error}
-    <div class="text-red-400 text-xs">{error}</div>
+    <div class="text-destructive text-xs">{error}</div>
   {/if}
 </div>
