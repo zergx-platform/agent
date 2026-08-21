@@ -21,9 +21,9 @@
   let selectedModels: string[] = $state([])
   let testResult = $state('')
 
-  const list = $derived(Object.values(providers))
-  const catalogList = $derived(Object.values(catalog))
-  const modelChoices = $derived(
+  const list = $derived.by(() => Object.values(providers ?? {}))
+  const catalogList = $derived.by(() => Object.values(catalog ?? {}))
+  const modelChoices = $derived.by(() =>
     Object.keys(catalogList.find(c => c.id === pid)?.models ?? {}),
   )
 
