@@ -1,10 +1,11 @@
-import { drizzle } from 'drizzle-orm/postgres-js'
+import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { ResultAsync } from 'neverthrow'
 import postgres, { type Sql } from 'postgres'
 import { z } from 'zod'
 import { parseLoose } from './json.js'
 
-export type Db = ReturnType<typeof drizzle>
+/** The drizzle database handle, with its underlying postgres.js `$client`. */
+export type Db = PostgresJsDatabase & { $client: Sql }
 
 export type {
   ContentPayload,
@@ -19,7 +20,6 @@ export type {
 export {
   ContentPayloadSchema,
   parse,
-  parseJson,
   parseLoose,
   stringify,
   TextPartDataSchema,
@@ -163,7 +163,7 @@ export function connectDb(url: string): ResultAsync<Db, string> {
       await migrateSchema(sql)
       const db = drizzle({ client: sql })
       await importProviders(sql)
-      return db as Db
+      return db
     })(),
     e => `db connect failed: ${String(e)}`,
   )
@@ -207,8 +207,11 @@ async function migrateSchema(sql: Sql): Promise<void> {
 async function importProviders(sql: Sql): Promise<void> {
   const rows = await sql`SELECT value FROM config WHERE key = 'providers'`
   const raw = rows[0]?.value
-  if (typeof raw !== 'string' || raw === '' || raw === '{}') return
-  const parsed = parseLoose(raw)
+  const rawParsed = z.string().safeParse(raw)
+  if (!rawParsed.success || rawParsed.data === '' || rawParsed.data === '{}') {
+    return
+  }
+  const parsed = parseLoose(rawParsed.data)
   if (parsed.isErr()) return
 
   const ProviderImportSchema = z.object({

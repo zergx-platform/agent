@@ -55,13 +55,6 @@ export function parseLoose(
   }
 }
 
-/** Legacy alias used by older call sites; prefer `parse(schema, …)`. */
-export function parseJson<T = unknown>(
-  raw: string | null | undefined,
-): Result<T, string> {
-  return parseLoose(raw).map(v => v as T)
-}
-
 // ---- shared payload / envelope schemas (kept here to avoid a schema→db dep) ----
 
 export const WakePayloadSchema = z.object({

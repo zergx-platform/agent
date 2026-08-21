@@ -231,11 +231,10 @@ function ensureObjectStore(js: JetStreamClient): Promise<unknown> {
   return js.views.os(BUCKET_TOOL).then(
     () => undefined,
     () =>
-      js.views.os({
-        bucket: BUCKET_TOOL,
+      js.views.os(BUCKET_TOOL, {
         description: 'rucoder tool results',
         ttl: DAY_NS,
-      } as never),
+      }),
   )
 }
 

@@ -27,6 +27,7 @@ import {
 import { type Context, Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { ResultAsync } from 'neverthrow'
+import { z } from 'zod'
 import { type AppEnv, EidDedup } from '../context.js'
 
 /** Serialize a session row into the recoder UI contract. */
@@ -149,9 +150,14 @@ sessionRoutes.post(
 
 // ---- SSE: durable JetStream replay + live, deduped by eid ----
 
+const EidEventSchema = z.object({ eid: z.string().optional() }).passthrough()
+
 async function sseHandler(c: Context<AppEnv>): Promise<Response> {
   const { bus } = c.get('deps')
-  const sid = c.req.param('id') as string
+  const sid = c.req.param('id')
+  if (sid === undefined) {
+    return c.json({ ok: false, error: 'session not found' }, 404)
+  }
   return streamSSE(c, async stream => {
     const subject = sseSubject(sid)
 
@@ -177,9 +183,11 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
     const dedup = new EidDedup()
     const replay = await bus.replayAll(STREAM_SSE, subject)
     if (replay.isOk()) {
-      for (const v of replay.value as { eid?: string }[]) {
-        dedup.mark(v.eid)
-        await stream.writeSSE({ data: JSON.stringify(v) })
+      for (const raw of replay.value) {
+        const v = EidEventSchema.safeParse(raw)
+        if (!v.success) continue
+        dedup.mark(v.data.eid)
+        await stream.writeSSE({ data: JSON.stringify(raw) })
       }
     }
 
@@ -187,11 +195,12 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
       if (closed) break
       const parsed = parseLoose(Buffer.from(m.data))
       if (!parsed.isOk()) continue
-      const v = parsed.value as { eid?: string }
-      if (dedup.duplicate(v?.eid)) continue
-      await stream.writeSSE({ data: JSON.stringify(v) })
+      const v = EidEventSchema.safeParse(parsed.value)
+      if (!v.success) continue
+      if (dedup.duplicate(v.data.eid)) continue
+      await stream.writeSSE({ data: JSON.stringify(parsed.value) })
     }
-  }) as Response
+  })
 }
 
 sessionRoutes.get('/:id/stream', sseHandler)

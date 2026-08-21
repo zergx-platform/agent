@@ -15,7 +15,6 @@ import {
 } from '@rucoder-agent/agent'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import type { Sql } from 'postgres'
 import type { AppEnv } from './context.js'
 import { buildRoutes } from './routes/index.js'
 
@@ -39,7 +38,7 @@ async function main(): Promise<void> {
   const llm = new LlmRegistry(config)
   const deps: AgentDeps = {
     db,
-    sql: db.$client as Sql,
+    sql: db.$client,
     bus,
     config,
     llm,
@@ -92,7 +91,7 @@ async function main(): Promise<void> {
     stopWake()
     server.close(() => {
       bus.close()
-      void (db.$client as Sql).end().then(
+      void db.$client.end().then(
         () => process.exit(0),
         () => process.exit(0),
       )

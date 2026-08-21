@@ -41,7 +41,7 @@ export const Parts = {
   /** Parts for a set of message ids (COW-shared chains). */
   listByMessages(db: Db, messageIds: string[]): ResultAsync<PartRow[], string> {
     if (messageIds.length === 0) {
-      return ResultAsync.fromSafePromise(Promise.resolve([] as PartRow[]))
+      return ResultAsync.fromSafePromise(Promise.resolve<PartRow[]>([]))
     }
     return q(
       () =>
