@@ -2,10 +2,11 @@
   import { onMount } from 'svelte'
   import { api, type Provider } from '$lib/api'
   import type { CatalogProvider } from '@rucoder-agent/schema'
-  import { X, Plus, Trash2, Check, RefreshCw } from '@lucide/svelte'
+  import { Plus, Trash2, Check, RefreshCw } from '@lucide/svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { NativeSelect } from '$lib/components/ui/native-select'
+  import * as Dialog from '$lib/components/ui/dialog'
 
   let { onclose }: { onclose: () => void } = $props()
 
@@ -126,22 +127,13 @@
 </script>
 
 <!-- backdrop -->
-<button
-  class="fixed inset-0 bg-black/50 z-10"
-  aria-label="Close"
-  onclick={onclose}
-></button>
+<Dialog.Root open onOpenChange={o => { if (!o) onclose() }}>
+  <Dialog.Content class="max-w-lg w-full">
+    <Dialog.Header>
+      <Dialog.Title>Providers</Dialog.Title>
+    </Dialog.Header>
 
-<div class="fixed inset-0 z-20 flex items-center justify-center p-4 pointer-events-none">
-  <div class="pointer-events-auto w-full max-w-lg bg-panel rounded-lg border border-border shadow-xl">
-    <header class="flex items-center justify-between px-4 py-3 border-b border-border">
-      <h2 class="text-sm font-semibold">Providers</h2>
-      <button class="text-muted hover:text-fg" onclick={onclose}>
-        <X class="size-4" />
-      </button>
-    </header>
-
-    <div class="p-4 flex flex-col gap-3 max-h-[70vh] overflow-y-auto">
+    <div class="flex flex-col gap-3 max-h-[70vh] overflow-y-auto">
       {#if list.length === 0}
         <div class="text-muted text-sm">No providers registered.</div>
       {/if}
@@ -236,5 +228,5 @@
         <div class="text-red-400 text-xs">{error}</div>
       {/if}
     </div>
-  </div>
-</div>
+  </Dialog.Content>
+</Dialog.Root>

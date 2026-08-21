@@ -9,6 +9,7 @@
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
+  import * as Dialog from '$lib/components/ui/dialog'
 
   let { active, onrefresh }: { active: Session; onrefresh: () => void } = $props()
 
@@ -281,20 +282,13 @@
 {/if}
 
 {#if showRename}
-  <button
-    class="fixed inset-0 bg-black/50 z-10"
-    aria-label="Close"
-    onclick={() => (showRename = false)}
-  ></button>
-  <div
-    class="fixed inset-0 z-20 flex items-center justify-center p-4 pointer-events-none"
-  >
-    <div
-      class="pointer-events-auto w-full max-w-xs bg-panel rounded-lg border border-border shadow-xl p-4 flex flex-col gap-3"
-    >
-      <h2 class="text-sm font-semibold">Rename session</h2>
+  <Dialog.Root open onOpenChange={o => { if (!o) showRename = false }}>
+    <Dialog.Content class="max-w-xs w-full">
+      <Dialog.Header>
+        <Dialog.Title>Rename session</Dialog.Title>
+      </Dialog.Header>
       <Input bind:value={renameInput} placeholder="new name" />
-      <div class="flex justify-end gap-2">
+      <Dialog.Footer>
         <Button
           variant="outline"
           onclick={() => (showRename = false)}
@@ -307,7 +301,7 @@
         >
           Rename
         </Button>
-      </div>
-    </div>
-  </div>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
 {/if}
