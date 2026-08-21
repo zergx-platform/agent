@@ -23,9 +23,8 @@ export const BUCKET_TOOL = 'RCODER_TOOL'
 /** KV bucket holding per-session run-state leases (running/idle). */
 export const BUCKET_SESSION_STATE = 'RCODER_SESSION_STATE'
 
-/** KV bucket holding the cached models.dev catalog (30min TTL). */
-export const BUCKET_MODELS_DEV = 'RCODER_MODELS_DEV'
-export const MODELS_DEV_KEY = 'catalog'
+/** Object-store key under BUCKET_TOOL holding the cached models.dev catalog. */
+export const MODELS_DEV_KEY = 'models-dev-catalog.json'
 
 export const mailboxSubject = (sid: string) => `mailbox.session.${sid}`
 export const sseSubject = (sid: string) => `sse.session.${sid}`
@@ -52,9 +51,6 @@ const DAY_NS = 24 * 3600 * 1_000_000_000
 /** Lease TTL for per-session run-state keys (ms). */
 const SESSION_LEASE_MS = 30_000
 
-/** TTL for the models.dev catalog KV (30 minutes). */
-const MODELS_DEV_TTL_MS = 30 * 60 * 1000
-
 export interface WakeMessage {
   session_name: string
   type: 'user_prompt' | 'interrupt' | 'event'
@@ -65,7 +61,6 @@ export class Bus {
     private readonly nc: NatsConnection,
     private readonly js: JetStreamClient,
     private readonly sessionState: KV,
-    private readonly modelsDev: KV,
   ) {}
 
   /** Core (non-durable) publish. */
@@ -143,7 +138,10 @@ export class Bus {
    */
   putModelsDev(json: string): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
-      this.modelsDev.put(MODELS_DEV_KEY, Buffer.from(json)).then(() => undefined),
+      this.js.views
+        .os(BUCKET_TOOL)
+        .then(os => os.putBlob({ name: MODELS_DEV_KEY }, Buffer.from(json)))
+        .then(() => undefined),
       e => `put models.dev catalog: ${String(e)}`,
     )
   }
@@ -151,13 +149,15 @@ export class Bus {
   /** Read the cached models.dev catalog, if present. */
   getModelsDev(): ResultAsync<unknown, string> {
     return ResultAsync.fromPromise(
-      this.modelsDev.get(MODELS_DEV_KEY).then(entry =>
-        entry === null
-          ? null
-          : parseLoose(entry.value).match(
-              v => v,
-              () => null,
-            ),
+      this.getObject(MODELS_DEV_KEY).match(
+        bytes =>
+          bytes.length === 0
+            ? null
+            : parseLoose(bytes).match(
+                v => v,
+                () => null,
+              ),
+        () => null,
       ),
       e => `get models.dev catalog: ${String(e)}`,
     )
@@ -238,13 +238,7 @@ export function connectBus(url: string): ResultAsync<Bus, string> {
         ttl: SESSION_LEASE_MS,
         description: 'rucoder per-session run-state leases',
       })
-      // models.dev catalog KV with a 30min TTL.
-      const modelsDev = await js.views.kv(BUCKET_MODELS_DEV, {
-        history: 1,
-        ttl: MODELS_DEV_TTL_MS,
-        description: 'rucoder models.dev catalog cache',
-      })
-      return new Bus(nc, js, sessionState, modelsDev)
+      return new Bus(nc, js, sessionState)
     })(),
     e => `nats connect: ${String(e)}`,
   )
