@@ -15,15 +15,13 @@ COPY packages packages
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts \
     && npm rebuild esbuild \
-    && npm run build
+    && npm run build:sea
 
-FROM ${REGISTRY}/node:26-alpine
-RUN apk add --no-cache ca-certificates
-WORKDIR /app
-COPY --from=build /build/package.json ./
-COPY --from=build /build/node_modules node_modules
-COPY --from=build /build/packages packages
-ENV NODE_ENV=production \
-    RUCODER_PORT=8080
+# The binary embeds Node, all JS dependencies and the SPA; the runtime stage
+# needs only libc + CA certs.
+FROM ${REGISTRY}/alpine:3.24
+RUN apk add --no-cache ca-certificates libstdc++
+COPY --from=build /build/.sea/rucoder-agent /usr/local/bin/rucoder-agent
+ENV RUCODER_PORT=8080
 EXPOSE 8080
-ENTRYPOINT ["node", "packages/server/dist/index.js"]
+ENTRYPOINT ["rucoder-agent"]

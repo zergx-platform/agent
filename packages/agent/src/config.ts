@@ -12,8 +12,6 @@ export function envList(key: string, fallback = ''): string[] {
 
 export interface ServerConfig {
   port: number
-  /** Static SPA directory (served as fallback when set). */
-  webDist: string
   postgresUrl: string
   natsUrl: string
   toolServers: string[]
@@ -40,7 +38,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
 
   return {
     port: Number.parseInt(or('RUCODER_PORT', '8080'), 10),
-    webDist: or('RUCODER_WEB_DIST', ''),
     postgresUrl: pgUrl,
     natsUrl: or('NATS_URL', 'nats://nats.develop.svc.cluster.local:4222'),
     toolServers: envList('RUCODER_TOOL_SERVERS'),

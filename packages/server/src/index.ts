@@ -1,6 +1,5 @@
-import { relative } from 'node:path'
+import { createRequire } from 'node:module'
 import { serve } from '@hono/node-server'
-import { serveStatic } from '@hono/node-server/serve-static'
 import {
   type AgentDeps,
   type Bus,
@@ -18,6 +17,52 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import type { AppEnv } from './context.js'
 import { buildRoutes } from './routes/index.js'
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
+
+function getSeaAsset(key: string): ArrayBuffer | null {
+  try {
+    const require = createRequire(import.meta.url)
+    const raw = require('node:sea').getRawAsset(key) as ArrayBuffer
+    return raw ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Serve the SPA from embedded SEA assets (single-executable deployment). */
+function seaStatic() {
+  return async (c: import('hono').Context<AppEnv>) => {
+    const path = new URL(c.req.url).pathname
+    // Route non-asset paths to the SPA entry.
+    const asset =
+      path === '/' || !path.includes('.') ? 'index.html' : path.slice(1)
+    const data = getSeaAsset(asset)
+    if (data === null) {
+      // Fall back to index.html for client-side routing.
+      const index = getSeaAsset('index.html')
+      if (index === null) return c.json({ ok: false, error: 'not found' }, 404)
+      return new Response(index, {
+        headers: { 'content-type': 'text/html' },
+      })
+    }
+    const ext = asset.slice(asset.lastIndexOf('.'))
+    return new Response(data, {
+      headers: {
+        'content-type': MIME[ext] ?? 'application/octet-stream',
+      },
+    })
+  }
+}
 
 async function main(): Promise<void> {
   const config = loadConfig()
@@ -62,20 +107,8 @@ async function main(): Promise<void> {
 
   app.route('/api/v1', buildRoutes())
 
-  // Static SPA fallback: default to the in-repo ./packages/ui/dist when the
-  // frontend ships alongside the server image; RUCODER_WEB_DIST overrides.
-  const webDist =
-    config.webDist !== ''
-      ? config.webDist
-      : relative(process.cwd(), 'packages/ui/dist')
-  app.use(
-    '*',
-    serveStatic({
-      root: webDist,
-      rewriteRequestPath: p =>
-        p === '/' || !p.includes('.') ? '/index.html' : p,
-    }),
-  )
+  // Serve the SPA from embedded SEA assets (single-executable deployment).
+  app.use('*', seaStatic())
 
   // Watch every session's mailbox wake wildcard so this replica can claim and
   // run work for any session — the horizontal scale-out trigger.

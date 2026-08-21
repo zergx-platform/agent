@@ -1,0 +1,9 @@
+{
+  "main": "/home/user/rucoder-neo/agent-ts/.sea/server.cjs",
+  "output": "/home/user/rucoder-neo/agent-ts/.sea/sea-prep.blob",
+  "assets": {
+    "assets/index-BbGROHah.js": "/home/user/rucoder-neo/agent-ts/packages/ui/dist/assets/index-BbGROHah.js",
+    "assets/index-Bif0LL7q.css": "/home/user/rucoder-neo/agent-ts/packages/ui/dist/assets/index-Bif0LL7q.css",
+    "index.html": "/home/user/rucoder-neo/agent-ts/packages/ui/dist/index.html"
+  }
+}
