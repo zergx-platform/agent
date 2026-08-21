@@ -1,34 +1,19 @@
+import { err, ok, type Result } from 'neverthrow'
 import { z } from 'zod'
 
 /**
- * Lightweight JSON-parse helper returning a `neverthrow` Result so the UI can
- * decode SSE payloads without try/catch or direct `JSON.parse`.
+ * JSON-parse helper returning a real `neverthrow` `Result` so callers can
+ * decode JSON (e.g. SSE payloads) without try/catch or direct `JSON.parse`.
  */
-export function parseLoose(
-  raw: string | Uint8Array,
-):
-  | { isOk(): boolean; isErr(): boolean; value: unknown; error: string }
-  | { match<T>(ok: (v: unknown) => T, err: (e: string) => T): T } {
-  let value: unknown
+export function parseLoose(raw: string | Uint8Array): Result<unknown, string> {
   try {
-    value = JSON.parse(
-      raw instanceof Uint8Array ? Buffer.from(raw).toString('utf8') : raw,
+    return ok(
+      JSON.parse(
+        raw instanceof Uint8Array ? Buffer.from(raw).toString('utf8') : raw,
+      ),
     )
   } catch (e) {
-    return {
-      isOk: () => false,
-      isErr: () => true,
-      value: null,
-      error: String(e),
-      match: (_ok, errFn) => errFn(String(e)),
-    }
-  }
-  return {
-    isOk: () => true,
-    isErr: () => false,
-    value,
-    error: '',
-    match: okFn => okFn(value),
+    return err(String(e))
   }
 }
 
