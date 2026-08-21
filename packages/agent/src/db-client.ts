@@ -202,6 +202,13 @@ async function migrateSchema(sql: Sql): Promise<void> {
     ALTER TABLE mailbox DROP COLUMN IF EXISTS session_id;
   `)
   await sql.unsafe(DDL)
+  // The DDL uses CREATE TABLE IF NOT EXISTS, so a pre-existing `mailbox`
+  // table keeps its old `session_id` column (now dropped above) and never
+  // gains the new `session_name` column. Add it explicitly for the upgrade
+  // path, and repoint the FK from sessions(id) → sessions(name) when needed.
+  await sql.unsafe(`
+    ALTER TABLE mailbox ADD COLUMN IF NOT EXISTS session_name TEXT;
+  `)
 }
 
 async function importProviders(sql: Sql): Promise<void> {
