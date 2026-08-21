@@ -6,6 +6,9 @@
   import { Send, Square, Settings2, Undo2, GitFork, Mailbox, FilePenLine } from '@lucide/svelte'
   import SettingsPanel from '$lib/SettingsPanel.svelte'
   import MailboxPanel from '$lib/MailboxPanel.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
+  import { Textarea } from '$lib/components/ui/textarea'
 
   let { active, onrefresh }: { active: Session; onrefresh: () => void } = $props()
 
@@ -242,31 +245,32 @@
       <div class="text-red-400 text-xs mb-2">{error}</div>
     {/if}
     <div class="flex gap-2 items-end">
-      <textarea
+      <Textarea
         rows={2}
         class="flex-1 resize-none"
         disabled={streaming}
         placeholder="Ask the agent…"
         bind:value={input}
         onkeydown={onKey}
-      ></textarea>
+      />
       {#if streaming}
-        <button
-          class="bg-red-600 text-white rounded p-2"
+        <Button
+          class="bg-destructive text-destructive-foreground h-9"
+          size="icon"
           onclick={interrupt}
           title="Stop"
         >
           <Square class="size-4" />
-        </button>
+        </Button>
       {:else}
-        <button
-          class="bg-accent text-accent-fg rounded p-2 disabled:opacity-50"
+        <Button
+          size="icon"
           disabled={input.trim() === ''}
           onclick={() => send()}
           title="Send"
         >
           <Send class="size-4" />
-        </button>
+        </Button>
       {/if}
     </div>
   </footer>
@@ -289,21 +293,20 @@
       class="pointer-events-auto w-full max-w-xs bg-panel rounded-lg border border-border shadow-xl p-4 flex flex-col gap-3"
     >
       <h2 class="text-sm font-semibold">Rename session</h2>
-      <input bind:value={renameInput} placeholder="new name" />
+      <Input bind:value={renameInput} placeholder="new name" />
       <div class="flex justify-end gap-2">
-        <button
-          class="bg-panel2 border border-border rounded px-3 py-1.5 text-sm"
+        <Button
+          variant="outline"
           onclick={() => (showRename = false)}
         >
           Cancel
-        </button>
-        <button
-          class="bg-accent text-accent-fg rounded px-3 py-1.5 text-sm font-medium"
+        </Button>
+        <Button
           disabled={renameInput.trim() === ''}
           onclick={rename}
         >
           Rename
-        </button>
+        </Button>
       </div>
     </div>
   </div>

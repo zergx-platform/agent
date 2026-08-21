@@ -2,6 +2,9 @@
   import { onMount } from 'svelte'
   import { api } from '$lib/api'
   import { X, Plus, Trash2 } from '@lucide/svelte'
+  import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
+  import { Textarea } from '$lib/components/ui/textarea'
 
   let { onclose }: { onclose: () => void } = $props()
 
@@ -94,27 +97,24 @@
 
       <div class="border-t border-border pt-3 flex flex-col gap-2">
         <div class="text-xs text-muted font-medium uppercase">New / edit preset</div>
-        <input bind:value={id} placeholder="id" />
-        <textarea
+        <Input bind:value={id} placeholder="id" />
+        <Textarea
           rows={3}
           bind:value={systemPrompt}
           placeholder="system prompt"
-        ></textarea>
-        <input bind:value={toolsText} placeholder="tools (comma-separated)" />
-        <input
+        />
+        <Input bind:value={toolsText} placeholder="tools (comma-separated)" />
+        <Input
           type="number"
           bind:value={maxTurns}
           placeholder="max_turns"
         />
-        <button
-          class="bg-accent text-accent-fg rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+        <Button
           disabled={id.trim() === ''}
           onclick={save}
         >
-          <span class="inline-flex items-center gap-1">
-            <Plus class="size-4" /> Save preset
-          </span>
-        </button>
+          <Plus class="size-4" /> Save preset
+        </Button>
       </div>
 
       {#if error}

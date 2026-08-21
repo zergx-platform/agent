@@ -3,6 +3,9 @@
   import { api, type Provider } from '$lib/api'
   import type { CatalogProvider } from '@rucoder-agent/schema'
   import { X, Plus, Trash2, Check, RefreshCw } from '@lucide/svelte'
+  import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
+  import { NativeSelect } from '$lib/components/ui/native-select'
 
   let { onclose }: { onclose: () => void } = $props()
 
@@ -164,12 +167,12 @@
 
       <div class="border-t border-border pt-3 flex flex-col gap-2">
         <div class="text-xs text-muted font-medium uppercase">Register new</div>
-        <select bind:value={pid}>
+        <NativeSelect bind:value={pid}>
           <option value="" disabled>pick from catalog…</option>
           {#each catalogList as item (item.id)}
             <option value={item.id}>{item.name}</option>
           {/each}
-        </select>
+        </NativeSelect>
         <button
           class="text-xs text-left text-accent"
           onclick={() => {
@@ -180,16 +183,17 @@
           <span class="inline-flex items-center gap-1">
             <RefreshCw class="size-3" /> prefill from catalog
           </span>
-        </button>        <input bind:value={pid} placeholder="provider_id" />
-        <select bind:value={apiType}>
+        </button>
+        <Input bind:value={pid} placeholder="provider_id" />
+        <NativeSelect bind:value={apiType}>
           <option value="openai-compatible">openai-compatible</option>
           <option value="openai">openai</option>
           <option value="anthropic">anthropic</option>
           <option value="deepseek">deepseek</option>
           <option value="google">google</option>
-        </select>
-        <input bind:value={baseUrl} placeholder="base_url (https://…)" />
-        <input
+        </NativeSelect>
+        <Input bind:value={baseUrl} placeholder="base_url (https://…)" />
+        <Input
           bind:value={apiKey}
           type="password"
           placeholder="api_key (optional)"
@@ -208,22 +212,20 @@
           </div>
         {/if}
         <div class="flex gap-2">
-          <button
-            class="bg-accent text-accent-fg rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50 flex-1"
+          <Button
+            class="flex-1"
             disabled={!pid.trim() || !baseUrl.trim()}
             onclick={register}
           >
-            <span class="inline-flex items-center gap-1">
-              <Plus class="size-4" /> Add provider
-            </span>
-          </button>
-          <button
-            class="bg-panel2 border border-border rounded px-3 py-1.5 text-sm disabled:opacity-50"
+            <Plus class="size-4" /> Add provider
+          </Button>
+          <Button
+            variant="outline"
             disabled={!baseUrl.trim()}
             onclick={test}
           >
             Test
-          </button>
+          </Button>
         </div>
         {#if testResult !== ''}
           <div class="text-xs text-muted">{testResult}</div>

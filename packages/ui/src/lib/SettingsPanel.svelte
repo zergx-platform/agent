@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api, type Session } from '$lib/api'
+  import { Button } from '$lib/components/ui/button'
+  import { Label } from '$lib/components/ui/label'
+  import { NativeSelect } from '$lib/components/ui/native-select'
 
   let { active, onrefresh }: { active: Session; onrefresh: () => void } = $props()
 
@@ -54,30 +57,29 @@
 <div class="bg-panel2 rounded p-3 flex flex-col gap-2 text-sm">
   <div class="text-xs font-medium uppercase text-muted">Session settings</div>
   <div class="flex items-center gap-2">
-    <label class="w-16 text-muted text-xs">model</label>
-    <select class="flex-1" bind:value={model}>
+    <Label class="w-16 text-muted-foreground text-xs">model</Label>
+    <NativeSelect class="flex-1" bind:value={model}>
       <option value="">default</option>
       {#each models as m (m)}
         <option value={m}>{m}</option>
       {/each}
-    </select>
+    </NativeSelect>
   </div>
   <div class="flex items-center gap-2">
-    <label class="w-16 text-muted text-xs">preset</label>
-    <select class="flex-1" bind:value={preset}>
+    <Label class="w-16 text-muted-foreground text-xs">preset</Label>
+    <NativeSelect class="flex-1" bind:value={preset}>
       <option value="">default</option>
       {#each presets as p (p.id)}
         <option value={p.id}>{p.id}</option>
       {/each}
-    </select>
+    </NativeSelect>
   </div>
-  <button
-    class="bg-accent text-accent-fg rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+  <Button
     disabled={saving}
     onclick={save}
   >
     {saving ? 'Saving…' : 'Save'}
-  </button>
+  </Button>
   {#if error}
     <div class="text-red-400 text-xs">{error}</div>
   {/if}

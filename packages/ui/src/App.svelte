@@ -7,6 +7,7 @@
   import PresetManager from '$lib/PresetManager.svelte'
   import { Settings, Wrench } from '@lucide/svelte'
   import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
 
   let sessions: Session[] = $state([])
   let activeName: string | null = $state(null)
@@ -78,7 +79,7 @@
       </div>
 
       <div class="mt-3 flex flex-col gap-2">
-        <input bind:value={name} placeholder="name" />
+        <Input bind:value={name} placeholder="name" />
         <Button
           class="w-full"
           disabled={creating}
