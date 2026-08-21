@@ -101,7 +101,9 @@
 
   <main class="flex-1 min-w-0">
     {#if active}
-      <ChatPane {active} onrefresh={refresh} />
+      {#key active.name}
+        <ChatPane {active} onrefresh={refresh} />
+      {/key}
     {:else}
       <div class="h-full flex items-center justify-center text-muted-foreground text-sm">
         Select or create a session to start chatting
