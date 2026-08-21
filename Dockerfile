@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM recoder-dev002.develop.10.199.64.20.nip.io/node:22-alpine3.24 AS build
+FROM recoder-dev002.develop.10.199.64.20.nip.io/node:26-alpine AS build
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ENV HTTP_PROXY=${HTTP_PROXY:-http://mihomo.develop.svc.cluster.local:7890} \
@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/root/.npm \
     && npm rebuild esbuild \
     && npm run build
 
-FROM recoder-dev002.develop.10.199.64.20.nip.io/node:22-alpine3.24
+FROM recoder-dev002.develop.10.199.64.20.nip.io/node:26-alpine
 RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=build /build/package.json ./
