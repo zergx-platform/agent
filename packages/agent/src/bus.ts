@@ -143,11 +143,7 @@ export class Bus {
    */
   putModelsDev(json: string): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
-      this.modelsDev
-        .put(MODELS_DEV_KEY, Buffer.from(json), {
-          previousSeq: 0,
-        })
-        .then(() => undefined),
+      this.modelsDev.put(MODELS_DEV_KEY, Buffer.from(json)).then(() => undefined),
       e => `put models.dev catalog: ${String(e)}`,
     )
   }
