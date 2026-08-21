@@ -4,12 +4,12 @@
 
   let {
     sessions,
-    activeId,
+    activeName,
     onselect,
   }: {
     sessions: Session[]
-    activeId: string | null
-    onselect: (id: string) => void
+    activeName: string | null
+    onselect: (name: string) => void
   } = $props()
 
   const sorted = $derived(
@@ -24,15 +24,15 @@
       No sessions yet
     </div>
   {:else}
-    {#each sorted as s (s.id)}
+    {#each sorted as s (s.name)}
       <button
-        class="text-left px-3 py-2 border-b border-border/60 hover:bg-panel2 transition-colors {activeId === s.id ? 'bg-panel2' : ''}"
-        onclick={() => onselect(s.id)}
+        class="text-left px-3 py-2 border-b border-border/60 hover:bg-panel2 transition-colors {activeName === s.name ? 'bg-panel2' : ''}"
+        onclick={() => onselect(s.name)}
       >
         <div class="text-sm truncate font-medium">
-          {s.name || `${s.org}/${s.repo}`}
+          {s.name}
         </div>
-        <div class="text-xs text-muted truncate">{s.org}/{s.repo} · #{s.branch} · {s.model || 'default'}</div>
+        <div class="text-xs text-muted truncate">{s.model || 'default'}</div>
       </button>
     {/each}
   {/if}

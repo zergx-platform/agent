@@ -245,6 +245,12 @@ export interface AppRoutes {
           session_name: string
         }>
       }
+      rename: {
+        $post: (input: { json: RenameBody }) => Promise<{
+          ok: boolean
+          session_name: string
+        }>
+      }
     }
   }
   providers: {

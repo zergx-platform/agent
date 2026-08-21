@@ -20,7 +20,7 @@
   let es: EventSource | null = null
 
   function loadHistory() {
-    void api.listMessages(active.id).match(
+    void api.listMessages(active.name).match(
       rows => {
         messages = rows
           .filter(m => m.role !== 'system')
@@ -34,7 +34,7 @@
 
   function startStream() {
     stopStream()
-    es = new EventSource(api.sessionsStreamUrl(active.id))
+    es = new EventSource(api.sessionsStreamUrl(active.name))
     es.onmessage = ev => {
       parseLoose(ev.data).match(
         value => {
@@ -90,7 +90,7 @@
     assistantBuf = ''
     streaming = true
     error = ''
-    void api.prompt(active.id, text).match(
+    void api.prompt(active.name, text).match(
       () => startStream(),
       e => {
         error = e
@@ -103,7 +103,7 @@
     stopStream()
     streaming = false
     flushAssistant()
-    void api.interrupt(active.id).match(
+    void api.interrupt(active.name).match(
       () => loadHistory(),
       e => {
         error = e
@@ -130,8 +130,7 @@
 
 <div class="h-full flex flex-col">
   <header class="shrink-0 px-4 py-2 border-b border-border flex items-center gap-2 text-sm">
-    <span class="font-medium">{active.name || `${active.org}/${active.repo}`}</span>
-    <span class="text-muted">{active.org}/{active.repo} · #{active.branch}</span>
+    <span class="font-medium">{active.name}</span>
   </header>
 
   <div class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4" use:scrollToBottom={messages.length + (assistantBuf.length > 0 ? 1 : 0)}>

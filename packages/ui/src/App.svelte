@@ -7,12 +7,9 @@
   import { Settings } from '@lucide/svelte'
 
   let sessions: Session[] = $state([])
-  let activeId: string | null = $state(null)
+  let activeName: string | null = $state(null)
   let showProviders = $state(false)
   let name = $state('')
-  let org = $state('')
-  let repo = $state('')
-  let branch = $state('main')
   let creating = $state(false)
   let error = $state('')
 
@@ -28,20 +25,16 @@
   }
 
   function createSession() {
-    if (!name.trim() || !org.trim() || !repo.trim() || !branch.trim()) return
+    if (name.trim() === '') return
     creating = true
     error = ''
     void api
-      .createSession({
-        name: name.trim(),
-        org: org.trim(),
-        repo: repo.trim(),
-        branch: branch.trim(),
-      })
+      .createSession({ name: name.trim() })
       .match(
         r => {
-          activeId = r.session_id
+          activeName = r.session_name
           creating = false
+          name = ''
           refresh()
         },
         e => {
@@ -54,7 +47,7 @@
   onMount(refresh)
 
   const active = $derived(
-    sessions.find(s => s.id === activeId) ?? null,
+    sessions.find(s => s.name === activeName) ?? null,
   )
 </script>
 
@@ -74,9 +67,6 @@
 
       <div class="mt-3 flex flex-col gap-2">
         <input bind:value={name} placeholder="name" />
-        <input bind:value={org} placeholder="org" />
-        <input bind:value={repo} placeholder="repo" />
-        <input bind:value={branch} placeholder="branch" />
         <button
           class="bg-accent text-accent-fg rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50"
           disabled={creating}
@@ -88,7 +78,7 @@
     </div>
 
     <div class="flex-1 overflow-y-auto">
-      <SessionList {sessions} {activeId} onselect={id => (activeId = id)} />
+      <SessionList {sessions} {activeName} onselect={n => (activeName = n)} />
     </div>
   </aside>
 
