@@ -1,9 +1,41 @@
 import { z } from 'zod'
 
-// ---------------- rows (agent DB contract, shared with the Rust agent) ----------------
+/**
+ * Lightweight JSON-parse helper returning a `neverthrow` Result so the UI can
+ * decode SSE payloads without try/catch or direct `JSON.parse`.
+ */
+export function parseLoose(
+  raw: string | Uint8Array,
+):
+  | { isOk(): boolean; isErr(): boolean; value: unknown; error: string }
+  | { match<T>(ok: (v: unknown) => T, err: (e: string) => T): T } {
+  let value: unknown
+  try {
+    value = JSON.parse(
+      raw instanceof Uint8Array ? Buffer.from(raw).toString('utf8') : raw,
+    )
+  } catch (e) {
+    return {
+      isOk: () => false,
+      isErr: () => true,
+      value: null,
+      error: String(e),
+      match: (_ok, errFn) => errFn(String(e)),
+    }
+  }
+  return {
+    isOk: () => true,
+    isErr: () => false,
+    value,
+    error: '',
+    match: okFn => okFn(value),
+  }
+}
+
+// ---- zod schemas (API contract, shared with server) ----------------
 
 export const SessionRowSchema = z.object({
-  id: z.string(),
+  name: z.string(),
   org: z.string(),
   repo: z.string(),
   branch: z.string(),
@@ -30,7 +62,6 @@ export type SessionRow = z.infer<typeof SessionRowSchema>
 
 export const MessageRowSchema = z.object({
   id: z.string(),
-  session_id: z.string(),
   role: z.string(),
   content: z.string(),
   parts_json: z.string(),
@@ -44,7 +75,6 @@ export type MessageRow = z.infer<typeof MessageRowSchema>
 export const PartRowSchema = z.object({
   id: z.string(),
   message_id: z.string(),
-  session_id: z.string(),
   type: z.string(),
   change_id: z.string().nullable(),
   seq: z.number().int(),
@@ -84,9 +114,10 @@ export const ProviderRowSchema = z.object({
 })
 export type ProviderRow = z.infer<typeof ProviderRowSchema>
 
-// ---------------- request bodies ----------------
+// ---- request bodies ----------------
 
 export const CreateSessionBodySchema = z.object({
+  name: z.string().min(1),
   org: z.string().min(1),
   repo: z.string().min(1),
   branch: z.string().min(1),
@@ -98,7 +129,10 @@ export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>
 export const PromptBodySchema = z.object({ prompt: z.string().min(1) })
 export type PromptBody = z.infer<typeof PromptBodySchema>
 
-export const ForkBodySchema = z.object({ branch: z.string().optional() })
+export const ForkBodySchema = z.object({
+  name: z.string().min(1),
+  branch: z.string().optional(),
+})
 export type ForkBody = z.infer<typeof ForkBodySchema>
 
 export const ModelBodySchema = z.object({ model: z.string().min(1) })
@@ -146,7 +180,7 @@ export const ProviderTestBodySchema = z.object({
 })
 export type ProviderTestBody = z.infer<typeof ProviderTestBodySchema>
 
-// ---------------- SSE events ----------------
+// ---- SSE events ----------------
 
 export const SSE_EVENT_NAMES = [
   'status',
@@ -164,9 +198,78 @@ export interface SSEEnvelope {
   eid: string
 }
 
-// ---------------- API error envelope ----------------
+// ---- API error envelope ----------------
 
 export interface ApiErrorBody {
   ok: false
   error: string
+}
+
+// ---- typed API contract ----------------
+//
+// The UI builds a type-safe Hono client via `hc<AppRoutes>()` using this
+// hand-written structural contract, so it does NOT depend on
+// @rucoder-agent/server (only on @rucoder-agent/schema). The server's real
+// router is type-checked against this contract via `satisfies`.
+
+export type SessionJson = SessionRow & { base_image: null; unread: number }
+
+export interface ProviderJson {
+  provider_id: string
+  api_type: string
+  base_url: string
+  api_key: string
+  headers: Record<string, unknown>
+  models: string[]
+}
+
+export interface AppRoutes {
+  sessions: {
+    $get: () => Promise<{ sessions: SessionJson[] }>
+    $post: (input: { json: CreateSessionBody }) => Promise<{
+      ok: boolean
+      session_name: string
+    }>
+    ':id': {
+      $get: () => Promise<{ session: SessionJson }>
+      $delete: () => Promise<{ ok: boolean }>
+      messages: {
+        $get: () => Promise<{
+          messages: Array<{
+            id: string
+            role: string
+            content: string
+            created_at: string
+          }>
+        }>
+      }
+      prompt: {
+        $post: (input: { json: PromptBody }) => Promise<{ ok: boolean }>
+      }
+      interrupt: {
+        $post: () => Promise<{ interrupted: boolean }>
+      }
+      fork: {
+        $post: (input: { json: ForkBody }) => Promise<{
+          ok: boolean
+          session_name: string
+        }>
+      }
+    }
+  }
+  providers: {
+    $get: () => Promise<{ providers: Record<string, ProviderJson> }>
+    $post: (input: { json: ProviderBody }) => Promise<{
+      ok: boolean
+      provider_id: string
+    }>
+    test: {
+      $post: (input: {
+        json: ProviderTestBody
+      }) => Promise<{ ok: boolean; models?: unknown; error?: string }>
+    }
+  }
+  models: {
+    $get: () => Promise<{ models: string[] }>
+  }
 }

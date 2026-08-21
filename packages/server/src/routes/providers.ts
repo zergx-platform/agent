@@ -1,12 +1,15 @@
 import { zValidator } from '@hono/zod-validator'
-import { Providers } from '@rucoder-agent/lib-db'
-import { validateApiType } from '@rucoder-agent/lib-llm'
+import { Providers, parse, validateApiType } from '@rucoder-agent/agent'
 import {
   ProviderBodySchema,
   ProviderTestBodySchema,
 } from '@rucoder-agent/schema'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import type { AppEnv } from '../context.js'
+
+const HeadersRecordSchema = z.record(z.string(), z.unknown())
+const ModelsArraySchema = z.array(z.string())
 
 function providerToJson(p: {
   provider_id: string
@@ -16,13 +19,15 @@ function providerToJson(p: {
   headers: string
   models: string
 }): Record<string, unknown> {
+  const headers = parse(HeadersRecordSchema, p.headers)
+  const models = parse(ModelsArraySchema, p.models)
   return {
     provider_id: p.provider_id,
     api_type: p.api_type,
     base_url: p.base_url,
     api_key: p.api_key,
-    headers: JSON.parse(p.headers),
-    models: JSON.parse(p.models),
+    headers: headers.isOk() ? headers.value : {},
+    models: models.isOk() ? models.value : [],
   }
 }
 

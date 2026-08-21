@@ -45,8 +45,8 @@ describe('rebuildHistory', () => {
     ])
   })
 
-  it('folds system messages into user turns', () => {
-    const out = rebuildHistory([msg('m1', 'system', 'ctx')], [])
+  it('folds event messages into user turns', () => {
+    const out = rebuildHistory([msg('m1', 'event', 'ctx')], [])
     expect(out).toEqual([{ role: 'user', content: 'ctx' }])
   })
 

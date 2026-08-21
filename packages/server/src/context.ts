@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { AgentDeps } from '@rucoder-agent/lib-agent'
-import type { LlmRegistry } from '@rucoder-agent/lib-llm'
+import type { AgentDeps, LlmRegistry } from '@rucoder-agent/agent'
 
 export type AppEnv = { Variables: { deps: AgentDeps } }
 

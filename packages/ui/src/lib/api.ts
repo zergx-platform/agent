@@ -1,111 +1,126 @@
+import type {
+  AppRoutes,
+  CreateSessionBody,
+  ProviderJson,
+  SessionJson,
+} from '@rucoder-agent/schema'
+import { SessionRowSchema } from '@rucoder-agent/schema'
+import { hc } from 'hono/client'
+import { err, ok, type Result, ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 
-const SessionSchema = z.object({
-  id: z.string(),
-  org: z.string(),
-  repo: z.string(),
-  branch: z.string(),
-  model: z.string(),
-  preset: z.string(),
-  max_turns: z.number().int().nullable(),
-  system_prompt: z.string().nullable(),
-  input_tokens: z.number().int(),
-  output_tokens: z.number().int(),
-  total_tokens: z.number().int(),
-  updated_at: z.string(),
+/**
+ * Type-safe Hono RPC client. Paths and request bodies are fully inferred from
+ * `AppRoutes` (declared in @rucoder-agent/schema), so the UI never imports the
+ * server package and all responses are validated with zod before use.
+ *
+ * Every network call returns a `neverthrow` Result — no try/catch/throw.
+ */
+
+const origin =
+  typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+
+export const client = hc<AppRoutes>(`${origin}/api/v1`)
+
+const sessionJsonSchema = SessionRowSchema.extend({
+  base_image: z.null(),
+  unread: z.number(),
 })
 
-export type Session = z.infer<typeof SessionSchema>
+export type Session = z.infer<typeof sessionJsonSchema>
 
-const ProviderSchema = z.object({
-  provider_id: z.string(),
-  api_type: z.string(),
-  base_url: z.string(),
-  api_key: z.string(),
-  headers: z.record(z.string(), z.unknown()).optional(),
-  models: z.array(z.string()).optional(),
-})
-
-export type Provider = z.infer<typeof ProviderSchema>
-
-const MessageSchema = z.object({
-  id: z.string(),
-  role: z.string(),
-  content: z.string(),
-  created_at: z.string(),
-})
-
-export type ApiMessage = z.infer<typeof MessageSchema>
-
-export type ChatEvent = {
-  event: string
-  params: {
-    type?: string
-    text?: string
-    content?: string
-    message?: string
-    reason?: string
-    tool_use_id?: string
-  }
+function decode<T>(
+  schema: z.ZodType<T>,
+  data: unknown,
+  label: string,
+): Result<T, string> {
+  const r = schema.safeParse(data)
+  return r.success ? ok(r.data) : err(`${label}: ${z.treeifyError(r.error)}`)
 }
 
-async function json<T>(
-  res: Response,
+function request<T>(
+  op: () => Promise<Response>,
   schema: z.ZodType<T>,
   label: string,
-): Promise<T> {
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error ?? `${label} failed (HTTP ${res.status})`)
-  }
-  return schema.parse(await res.json())
+): ResultAsync<T, string> {
+  const parseBody = (res: Response): Promise<unknown> =>
+    res.json().then(
+      v => v,
+      () => null,
+    )
+  return ResultAsync.fromPromise(
+    (async () => {
+      const res = await op()
+      const body: unknown = await parseBody(res)
+      if (!res.ok) {
+        const msg = (body as { error?: string } | null)?.error
+        return err<T, string>(msg ?? `${label} failed (HTTP ${res.status})`)
+      }
+      const decoded = decode(schema, body, label)
+      return decoded.isErr() ? err<T, string>(decoded.error) : ok(decoded.value)
+    })().andThen(r => r),
+    e => `${label}: ${String(e)}`,
+  )
 }
-
-const base = '/api/v1'
 
 export const api = {
   listSessions: () =>
-    fetch(`${base}/sessions`)
-      .then(r =>
-        json(r, z.object({ sessions: z.array(SessionSchema) }), 'list'),
-      )
-      .then(d => d.sessions),
+    request(
+      () => client.sessions.$get(),
+      z.object({ sessions: z.array(sessionJsonSchema) }),
+      'list sessions',
+    ).map(r => r.sessions),
 
-  createSession: (body: { org: string; repo: string; branch: string }) =>
-    fetch(`${base}/sessions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(r =>
-      json(r, z.object({ ok: z.boolean(), session_id: z.string() }), 'create'),
+  createSession: (body: CreateSessionBody) =>
+    request(
+      () => client.sessions.$post({ json: body }),
+      z.object({ ok: z.boolean(), session_name: z.string() }),
+      'create session',
     ),
 
   listMessages: (sid: string) =>
-    fetch(`${base}/sessions/${sid}/messages`).then(r =>
-      json(r, z.object({ messages: z.array(MessageSchema) }), 'messages'),
-    ),
+    request(
+      () => client.sessions[':id'].messages.$get({}, { param: { id: sid } }),
+      z.object({
+        messages: z.array(
+          z.object({
+            id: z.string(),
+            role: z.string(),
+            content: z.string(),
+            created_at: z.string(),
+          }),
+        ),
+      }),
+      'list messages',
+    ).map(r => r.messages),
 
   prompt: (sid: string, prompt: string) =>
-    fetch(`${base}/sessions/${sid}/prompt`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    }),
+    request(
+      () =>
+        client.sessions[':id'].prompt.$post(
+          { json: { prompt } },
+          { param: { id: sid } },
+        ),
+      z.object({ ok: z.boolean() }),
+      'prompt',
+    ),
 
   interrupt: (sid: string) =>
-    fetch(`${base}/sessions/${sid}/interrupt`, { method: 'POST' }),
+    request(
+      () => client.sessions[':id'].interrupt.$post({}, { param: { id: sid } }),
+      z.object({ interrupted: z.boolean() }),
+      'interrupt',
+    ),
 
   sessionsStreamUrl: (sid: string) =>
-    `${base}/sessions/${encodeURIComponent(sid)}/stream`,
+    `/api/v1/sessions/${encodeURIComponent(sid)}/stream`,
 
   listProviders: () =>
-    fetch(`${base}/providers`).then(r =>
-      json(
-        r,
-        z.object({ providers: z.record(z.string(), ProviderSchema) }),
-        'providers',
-      ),
-    ),
+    request(
+      () => client.providers.$get(),
+      z.object({ providers: z.record(z.string(), z.unknown()) }),
+      'list providers',
+    ).map(r => r.providers as Record<string, ProviderJson>),
 
   registerProvider: (p: {
     provider_id: string
@@ -114,36 +129,38 @@ export const api = {
     api_key?: string
     models?: string[]
   }) =>
-    fetch(`${base}/providers`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(p),
-    }),
+    request(
+      () => client.providers.$post({ json: p }),
+      z.object({ ok: z.boolean(), provider_id: z.string() }),
+      'register provider',
+    ),
 
   deleteProvider: (pid: string) =>
-    fetch(`${base}/providers/${encodeURIComponent(pid)}`, { method: 'DELETE' }),
+    request(
+      () => client.providers[':id'].$delete(undefined, { param: { id: pid } }),
+      z
+        .object({ deleted: z.boolean().optional() })
+        .or(z.object({ ok: z.boolean() })),
+      'delete provider',
+    ),
 
   testProvider: (p: { api_type: string; base_url: string; api_key?: string }) =>
-    fetch(`${base}/providers/test`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(p),
-    }).then(r =>
-      json(
-        r,
-        z.object({
-          ok: z.boolean(),
-          models: z.unknown().optional(),
-          error: z.string().optional(),
-        }),
-        'test',
-      ),
+    request(
+      () => client.providers.test.$post({ json: p }),
+      z.object({
+        ok: z.boolean(),
+        models: z.unknown().optional(),
+        error: z.string().optional(),
+      }),
+      'test provider',
     ),
 
   listModels: () =>
-    fetch(`${base}/models`).then(r =>
-      json(r, z.object({ models: z.array(z.string()) }), 'models'),
-    ),
+    request(
+      () => client.models.$get(),
+      z.object({ models: z.array(z.string()) }),
+      'list models',
+    ).map(r => r.models),
 }
 
-export type { Session as SessionInfo }
+export type { SessionJson }

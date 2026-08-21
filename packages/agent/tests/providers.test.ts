@@ -1,6 +1,6 @@
 import type { ProviderRow } from '@rucoder-agent/schema'
 import { describe, expect, it } from 'vitest'
-import { findProviderForModel } from '../src/providers.js'
+import { findProviderForModel } from '../src/db-providers.js'
 
 const row = (id: string, models: string): ProviderRow => ({
   provider_id: id,

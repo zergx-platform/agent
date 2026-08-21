@@ -3,11 +3,13 @@ import { createDeepSeek } from '@ai-sdk/deepseek'
 import { createGoogle } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import type { ServerConfig } from '@rucoder-agent/lib-config'
-import { type Db, findProviderForModel, Providers } from '@rucoder-agent/lib-db'
 import type { ProviderRow } from '@rucoder-agent/schema'
 import type { LanguageModel } from 'ai'
 import { err, ok, type Result } from 'neverthrow'
+import type { ServerConfig } from './config.js'
+import type { Db } from './db-client.js'
+import { parseLoose } from './db-client.js'
+import { findProviderForModel, Providers } from './db-providers.js'
 
 export interface ProviderCredentials {
   apiType: string
@@ -151,10 +153,19 @@ export class LlmRegistry {
 }
 
 function parseHeaders(raw: string): Record<string, string> {
-  const v = JSON.parse(raw) as unknown
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return {}
+  const parsed = parseLoose(raw)
+  if (
+    parsed.isErr() ||
+    parsed.value === null ||
+    typeof parsed.value !== 'object' ||
+    Array.isArray(parsed.value)
+  ) {
+    return {}
+  }
   const out: Record<string, string> = {}
-  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+  for (const [k, val] of Object.entries(
+    parsed.value as Record<string, unknown>,
+  )) {
     if (typeof val === 'string') out[k] = val
   }
   return out

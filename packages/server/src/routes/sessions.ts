@@ -1,13 +1,20 @@
 import { zValidator } from '@hono/zod-validator'
-import { interruptRun, runSessionTurn } from '@rucoder-agent/lib-agent'
-import { mailboxSubject, STREAM_SSE, sseSubject } from '@rucoder-agent/lib-bus'
 import {
+  type AgentDeps,
+  interruptRun,
   Mailbox,
   Messages,
+  mailboxSubject,
   Parts,
-  parseJson,
+  parse,
+  parseLoose,
+  runSessionTurn,
   Sessions,
-} from '@rucoder-agent/lib-db'
+  STREAM_SSE,
+  sseSubject,
+  stringify,
+  ToolPartDataSchema,
+} from '@rucoder-agent/agent'
 import {
   CreateSessionBodySchema,
   ForkBodySchema,
@@ -30,6 +37,17 @@ function err500(c: Context, message: string) {
   return c.json({ ok: false, error: message }, 500)
 }
 
+/**
+ * Idempotent, reentrant trigger: attempt to claim the session's run lease and
+ * run its mailbox to completion. Safe to call from every enqueue point and
+ * every replica — exactly one claim wins.
+ */
+function triggerClaim(deps: AgentDeps, sid: string): void {
+  void runSessionTurn(deps, sid).catch(e =>
+    console.error(`[agent] turn crashed (${sid}): ${String(e)}`),
+  )
+}
+
 export const sessionRoutes = new Hono<AppEnv>()
 
 sessionRoutes.get('/', async c => {
@@ -46,15 +64,15 @@ sessionRoutes.post(
   async c => {
     const { db } = c.get('deps')
     const b = c.req.valid('json')
-    const exists = await Sessions.existsWithKey(db, b.org, b.repo, b.branch)
+    const exists = await Sessions.exists(db, b.name)
     if (exists.isErr()) return err500(c, exists.error)
     if (exists.value) {
       return c.json({ ok: false, error: 'Session already exists' }, 409)
     }
-    const id = await Sessions.create(db, b)
-    return id.isErr()
-      ? err500(c, id.error)
-      : c.json({ ok: true, session_id: id.value })
+    const name = await Sessions.create(db, b)
+    return name.isErr()
+      ? err500(c, name.error)
+      : c.json({ ok: true, session_name: name.value })
   },
 )
 
@@ -82,7 +100,7 @@ sessionRoutes.get('/:id/messages', async c => {
   const before = c.req.query('before') ?? null
   const tipRes = await Sessions.tip(db, sid)
   const tipId = tipRes.isErr() ? null : tipRes.value
-  const r = await Messages.chain(db, sid, limit, before, tipId)
+  const r = await Messages.chain(db, tipId, limit, before)
   return r.isErr() ? err500(c, r.error) : c.json({ messages: r.value })
 })
 
@@ -104,7 +122,7 @@ sessionRoutes.post(
     // never runs against a history missing the prompt.
     const tipRes = await Sessions.tip(deps.db, sid)
     const tipId = tipRes.isErr() ? null : tipRes.value
-    const insert = await Messages.insert(deps.db, sid, 'user', prompt, tipId)
+    const insert = await Messages.insert(deps.db, 'user', prompt, tipId)
     if (insert.isErr()) return err500(c, insert.error)
     await Sessions.setTip(deps.db, sid, insert.value)
 
@@ -113,7 +131,8 @@ sessionRoutes.post(
     })
     if (enq.isErr()) return err500(c, enq.error)
 
-    // Durable wake signal (any replica may pick the turn up via the lock).
+    // Wake any replica via the durable mailbox subject. Every replica tries a
+    // claim; exactly one wins and drains the mailbox (idempotent, reentrant).
     void deps.bus
       .publishStream(mailboxSubject(sid), {
         type: 'user_prompt',
@@ -121,9 +140,7 @@ sessionRoutes.post(
       })
       .then(() => undefined)
 
-    void runSessionTurn(deps, sid).catch(e =>
-      console.error(`[agent] turn crashed (${sid}): ${String(e)}`),
-    )
+    void triggerClaim(deps, sid)
     return c.json({ ok: true })
   },
 )
@@ -140,7 +157,7 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
     const subRes = await bus.subscribe(subject)
     if (subRes.isErr()) {
       await stream.writeSSE({
-        data: JSON.stringify({
+        data: stringify({
           event: 'error',
           params: { message: subRes.error },
         }),
@@ -160,20 +177,17 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
     if (replay.isOk()) {
       for (const v of replay.value as { eid?: string }[]) {
         dedup.mark(v.eid)
-        await stream.writeSSE({ data: JSON.stringify(v) })
+        await stream.writeSSE({ data: stringify(v) })
       }
     }
 
     for await (const m of sub) {
       if (closed) break
-      let v: { eid?: string } | null = null
-      try {
-        v = JSON.parse(Buffer.from(m.data).toString('utf8'))
-      } catch {
-        continue
-      }
+      const parsed = parseLoose(Buffer.from(m.data))
+      if (!parsed.isOk()) continue
+      const v = parsed.value as { eid?: string }
       if (dedup.duplicate(v?.eid)) continue
-      await stream.writeSSE({ data: JSON.stringify(v) })
+      await stream.writeSSE({ data: stringify(v) })
     }
   }) as Response
 }
@@ -203,43 +217,43 @@ sessionRoutes.post('/:id/fork', zValidator('json', ForkBodySchema), async c => {
   }
   const p = parent.value
 
-  const newId = crypto.randomUUID()
-  const newBranch =
-    b.branch && b.branch !== '' ? b.branch : `fork-${newId.slice(0, 8)}`
+  // name is the new session's globally-unique identity (rename == fork+delete).
+  const newName = b.name
+  const newBranch = b.branch && b.branch !== '' ? b.branch : newName
 
   // Copy the jj bookmark via repo-manager (best-effort, warn on failure).
-  try {
-    await fetch(
-      `${deps.config.repoManagerUrl.replace(/\/$/, '')}/api/v1/repos/bookmark-from`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          org: p.org,
-          repo: p.repo,
-          source_branch: p.branch,
-          new_branch: newBranch,
-        }),
-      },
-    )
-  } catch (e) {
+  void fetch(
+    `${deps.config.repoManagerUrl.replace(/\/$/, '')}/api/v1/repos/bookmark-from`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: stringify({
+        org: p.org,
+        repo: p.repo,
+        source_branch: p.branch,
+        new_branch: newBranch,
+      }),
+    },
+  ).catch(e => {
     console.warn(`[agent] bookmark-from failed (${pid}): ${String(e)}`)
-  }
+  })
 
-  const id = await Sessions.create(deps.db, {
+  const name = await Sessions.create(deps.db, {
+    name: newName,
     org: p.org,
     repo: p.repo,
     branch: newBranch,
     model: p.model,
     preset: p.preset,
-    parentId: p.id,
-    forkAtMsgId: p.tip_id ?? undefined,
+    parentName: p.name,
+    tipId: p.tip_id,
+    forkAtMsgId: p.tip_id,
     maxTurns: p.max_turns ?? undefined,
     systemPrompt: p.system_prompt ?? undefined,
   })
-  return id.isErr()
-    ? err500(c, id.error)
-    : c.json({ ok: true, session_id: id.value })
+  return name.isErr()
+    ? err500(c, name.error)
+    : c.json({ ok: true, session_name: name.value })
 })
 
 sessionRoutes.post(
@@ -277,7 +291,7 @@ sessionRoutes.post('/:id/undo', zValidator('json', UndoBodySchema), async c => {
   if (target.isErr()) return err500(c, target.error)
   if (target.value === null) return c.json({ ok: false, undone: false })
 
-  const removed = await Messages.deleteAfter(deps.db, sid, targetId)
+  const removed = await Messages.deleteAfter(deps.db, targetId)
   if (removed.isErr()) return err500(c, removed.error)
   await Sessions.setTip(deps.db, sid, target.value.prev_id)
 
@@ -288,7 +302,7 @@ sessionRoutes.post('/:id/undo', zValidator('json', UndoBodySchema), async c => {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ org: s.org, repo: s.repo, branch: s.branch }),
+        body: stringify({ org: s.org, repo: s.repo, branch: s.branch }),
       },
     )
   } catch (e) {
@@ -315,19 +329,25 @@ sessionRoutes.get('/:id/mailbox', async c => {
 sessionRoutes.get('/:id/changes', async c => {
   const { db } = c.get('deps')
   const sid = c.req.param('id')
-  const partsRes = await Parts.listBySession(db, sid)
+  const tipRes = await Sessions.tip(db, sid)
+  const tipId = tipRes.isErr() ? null : tipRes.value
+  const chain = await Messages.chain(db, tipId, 100_000, null)
+  if (chain.isErr()) return err500(c, chain.error)
+  const ids = chain.value.map(m => m.id)
+  const partsRes = await Parts.listByMessages(db, ids)
   if (partsRes.isErr()) return err500(c, partsRes.error)
 
   const changes: Array<Record<string, unknown>> = []
   for (const p of partsRes.value) {
     if (p.type !== 'tool' || p.change_id === null) continue
-    const data = parseJson<{ name?: string; content?: string }>(p.data) ?? {}
+    const data = parse(ToolPartDataSchema, p.data)
+    const name = data.isOk() ? data.value.name : 'tool'
     changes.push({
       change_id: p.change_id,
-      tool_name: data.name ?? 'tool',
+      tool_name: name,
       timestamp: '',
       message_id: p.message_id,
-      content: (data.content ?? '').slice(0, 200),
+      content: '',
       seq: p.seq,
     })
   }
@@ -362,7 +382,7 @@ sessionRoutes.post('/:id/interrupt', async c => {
   // 1. Local mid-stream abort (this replica).
   interruptRun(sid)
   // 2. Durable: enqueue + wake publish so the replica holding the session
-  //    lock aborts its in-flight stream.
+  //    aborts its in-flight stream.
   const enq = await Mailbox.enqueue(deps.db, sid, 'interrupt', {})
   if (enq.isErr()) return err500(c, enq.error)
   void deps.bus
@@ -371,8 +391,6 @@ sessionRoutes.post('/:id/interrupt', async c => {
       session_id: sid,
     })
     .then(() => undefined)
-  void runSessionTurn(deps, sid).catch(e =>
-    console.error(`[agent] interrupt drain crashed (${sid}): ${String(e)}`),
-  )
+  void triggerClaim(deps, sid)
   return c.json({ interrupted: true })
 })

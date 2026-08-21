@@ -1,9 +1,10 @@
 import type { MailboxRow } from '@rucoder-agent/schema'
 import { sql as dsql, eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
-import type { Db } from './client.js'
-import { nowStr, q, rowsOf, uuid } from './client.js'
-import { mailbox } from './schema.js'
+import type { Db } from './db-client.js'
+import { nowStr, q, rowsOf, uuid } from './db-client.js'
+import { mailbox } from './db-schema.js'
+import { stringify } from './json.js'
 
 const toRow = (r: typeof mailbox.$inferSelect): MailboxRow => ({
   id: r.id,
@@ -31,7 +32,7 @@ export const Mailbox = {
           id,
           sessionId,
           msgType,
-          payload: JSON.stringify(payload ?? {}),
+          payload: stringify(payload ?? {}),
           status: 'pending',
           createdAt: nowStr(),
         }),

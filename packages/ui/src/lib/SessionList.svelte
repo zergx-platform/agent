@@ -29,10 +29,10 @@
         class="text-left px-3 py-2 border-b border-border/60 hover:bg-panel2 transition-colors {activeId === s.id ? 'bg-panel2' : ''}"
         onclick={() => onselect(s.id)}
       >
-        <div class="text-sm truncate">
-          {s.org}/{s.repo}
+        <div class="text-sm truncate font-medium">
+          {s.name || `${s.org}/${s.repo}`}
         </div>
-        <div class="text-xs text-muted truncate">#{s.branch} · {s.model || 'default'}</div>
+        <div class="text-xs text-muted truncate">{s.org}/{s.repo} · #{s.branch} · {s.model || 'default'}</div>
       </button>
     {/each}
   {/if}

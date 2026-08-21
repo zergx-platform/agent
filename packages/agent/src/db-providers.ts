@@ -1,9 +1,13 @@
 import type { ProviderRow } from '@rucoder-agent/schema'
 import { eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
-import type { Db } from './client.js'
-import { nowStr, parseJson, q } from './client.js'
-import { providers } from './schema.js'
+import { z } from 'zod'
+import type { Db } from './db-client.js'
+import { nowStr, q } from './db-client.js'
+import { providers } from './db-schema.js'
+import { parse, stringify } from './json.js'
+
+const StringArraySchema = z.array(z.string())
 
 export interface ProviderInput {
   providerId: string
@@ -47,8 +51,8 @@ export const Providers = {
             apiType: input.apiType,
             baseUrl: input.baseUrl,
             apiKey: input.apiKey,
-            headers: JSON.stringify(input.headers ?? null),
-            models: JSON.stringify(input.models ?? []),
+            headers: stringify(input.headers ?? null),
+            models: stringify(input.models ?? []),
             createdAt: nowStr(),
             updatedAt: nowStr(),
           })
@@ -58,8 +62,8 @@ export const Providers = {
               apiType: input.apiType,
               baseUrl: input.baseUrl,
               apiKey: input.apiKey,
-              headers: JSON.stringify(input.headers ?? null),
-              models: JSON.stringify(input.models ?? []),
+              headers: stringify(input.headers ?? null),
+              models: stringify(input.models ?? []),
               updatedAt: nowStr(),
             },
           }),
@@ -91,8 +95,8 @@ export function findProviderForModel(
   if (model === '') return null
   return (
     rows.find(r => {
-      const models = parseJson<string[]>(r.models)
-      return Array.isArray(models) && models.includes(model)
+      const models = parse(StringArraySchema, r.models)
+      return models.isOk() && models.value.includes(model)
     }) ?? null
   )
 }

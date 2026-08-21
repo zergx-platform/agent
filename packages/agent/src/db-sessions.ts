@@ -1,14 +1,14 @@
 import type { SessionRow } from '@rucoder-agent/schema'
-import { and, sql as dsql, eq } from 'drizzle-orm'
+import { sql as dsql, eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
-import type { Db } from './client.js'
-import { nowStr, q, uuid } from './client.js'
-import { sessions } from './schema.js'
+import type { Db } from './db-client.js'
+import { nowStr, q } from './db-client.js'
+import { mailbox, sessions } from './db-schema.js'
 
 type Row = typeof sessions.$inferSelect
 
 const toRow = (r: Row): SessionRow => ({
-  id: r.id,
+  name: r.name,
   org: r.org,
   repo: r.repo,
   branch: r.branch,
@@ -52,13 +52,13 @@ export const Sessions = {
     )
   },
 
-  get(db: Db, id: string): ResultAsync<SessionRow | null, string> {
+  get(db: Db, name: string): ResultAsync<SessionRow | null, string> {
     return q(
       () =>
         db
           .select()
           .from(sessions)
-          .where(eq(sessions.id, id))
+          .where(eq(sessions.name, name))
           .limit(1)
           .then(rows => {
             const r = rows[0]
@@ -70,26 +70,27 @@ export const Sessions = {
 
   create(
     db: Db,
-    input: Pick<SessionRow, 'org' | 'repo' | 'branch'> & {
+    input: Pick<SessionRow, 'name' | 'org' | 'repo' | 'branch'> & {
       model?: string
       preset?: string
-      parentId?: string
-      forkAtMsgId?: string
+      parentName?: string | null
+      tipId?: string | null
+      forkAtMsgId?: string | null
       maxTurns?: number
       systemPrompt?: string
     },
   ): ResultAsync<string, string> {
-    const id = uuid()
     return q(
       () =>
         db.insert(sessions).values({
-          id,
+          name: input.name,
           org: input.org,
           repo: input.repo,
           branch: input.branch,
           model: input.model ?? '',
           preset: input.preset ?? '',
-          parentId: input.parentId ?? null,
+          parentId: input.parentName ?? null,
+          tipId: input.tipId ?? null,
           forkAtMsgId: input.forkAtMsgId ?? null,
           maxTurns: input.maxTurns ?? null,
           systemPrompt: input.systemPrompt ?? null,
@@ -97,76 +98,77 @@ export const Sessions = {
           updatedAt: nowStr(),
         }),
       'create session',
-    ).map(() => id)
+    ).map(() => input.name)
   },
 
-  delete(db: Db, id: string): ResultAsync<void, string> {
-    return q(
-      () => db.delete(sessions).where(eq(sessions.id, id)),
-      'delete session',
-    ).map(() => undefined)
+  delete(db: Db, name: string): ResultAsync<void, string> {
+    return q(async () => {
+      // COW-safe delete. Messages are session-agnostic: a session only points
+      // at its chain head via `tip_id`. Forked children share the parent's
+      // message rows, so deleting a session must never touch messages — only
+      // its private mailbox queue and the session row itself.
+      await db.delete(mailbox).where(eq(mailbox.sessionId, name))
+      await db.delete(sessions).where(eq(sessions.name, name))
+    }, 'delete session')
   },
 
-  setModel(db: Db, id: string, model: string): ResultAsync<void, string> {
+  setModel(db: Db, name: string, model: string): ResultAsync<void, string> {
     return q(
       () =>
         db
           .update(sessions)
           .set({ model, updatedAt: nowStr() })
-          .where(eq(sessions.id, id)),
+          .where(eq(sessions.name, name)),
       'set session model',
     ).map(() => undefined)
   },
 
   updateSettings(
     db: Db,
-    id: string,
+    name: string,
     patch: SessionPatch,
   ): ResultAsync<void, string> {
-    const set: Record<string, string | number | null> = {
-      updated_at: nowStr(),
-    }
-    if (patch.model !== undefined) set.model = patch.model
-    if (patch.preset !== undefined) set.preset = patch.preset
-    if (patch.maxTurns !== undefined) set.max_turns = patch.maxTurns
-    if (patch.systemPrompt !== undefined) set.system_prompt = patch.systemPrompt
     return q(
       () =>
         db
           .update(sessions)
           .set(patchToDrizzle(patch, nowStr()))
-          .where(eq(sessions.id, id)),
+          .where(eq(sessions.name, name)),
       'update session settings',
     ).map(() => undefined)
   },
 
-  tip(db: Db, id: string): ResultAsync<string | null, string> {
+  tip(db: Db, name: string): ResultAsync<string | null, string> {
     return q(
       () =>
         db
           .select({ tipId: sessions.tipId })
           .from(sessions)
-          .where(eq(sessions.id, id))
+          .where(eq(sessions.name, name))
           .limit(1)
           .then(rows => rows[0]?.tipId ?? null),
       'get session tip',
     )
   },
 
-  setTip(db: Db, id: string, tipId: string | null): ResultAsync<void, string> {
+  setTip(
+    db: Db,
+    name: string,
+    tipId: string | null,
+  ): ResultAsync<void, string> {
     return q(
       () =>
         db
           .update(sessions)
           .set({ tipId, updatedAt: nowStr() })
-          .where(eq(sessions.id, id)),
+          .where(eq(sessions.name, name)),
       'set session tip',
     ).map(() => undefined)
   },
 
   addUsage(
     db: Db,
-    id: string,
+    name: string,
     input: number,
     output: number,
   ): ResultAsync<void, string> {
@@ -178,30 +180,19 @@ export const Sessions = {
                  output_tokens = output_tokens + ${output},
                  total_tokens = total_tokens + ${input + output},
                  last_used_at = ${nowStr()}
-               WHERE id = ${id}`,
+               WHERE name = ${name}`,
         ),
       'add session usage',
     ).map(() => undefined)
   },
 
-  existsWithKey(
-    db: Db,
-    org: string,
-    repo: string,
-    branch: string,
-  ): ResultAsync<boolean, string> {
+  exists(db: Db, name: string): ResultAsync<boolean, string> {
     return q(
       () =>
         db
-          .select({ id: sessions.id })
+          .select({ name: sessions.name })
           .from(sessions)
-          .where(
-            and(
-              eq(sessions.org, org),
-              eq(sessions.repo, repo),
-              eq(sessions.branch, branch),
-            ),
-          )
+          .where(eq(sessions.name, name))
           .limit(1)
           .then(rows => rows.length > 0),
       'session exists',

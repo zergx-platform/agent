@@ -16,20 +16,22 @@
 
   const list = $derived(Object.values(providers))
 
-  async function refresh() {
-    try {
-      const r = await api.listProviders()
-      providers = r.providers
-    } catch (e) {
-      error = String(e)
-    }
+  function refresh() {
+    void api.listProviders().match(
+      r => {
+        providers = r.providers
+      },
+      e => {
+        error = e
+      },
+    )
   }
 
-  async function register() {
+  function register() {
     if (!pid.trim() || !baseUrl.trim()) return
     error = ''
-    try {
-      await api.registerProvider({
+    void api
+      .registerProvider({
         provider_id: pid.trim(),
         api_type: apiType,
         base_url: baseUrl.trim(),
@@ -39,23 +41,27 @@
           .map(s => s.trim())
           .filter(Boolean),
       })
-      pid = ''
-      baseUrl = ''
-      apiKey = ''
-      modelsText = ''
-      await refresh()
-    } catch (e) {
-      error = String(e)
-    }
+      .match(
+        () => {
+          pid = ''
+          baseUrl = ''
+          apiKey = ''
+          modelsText = ''
+          refresh()
+        },
+        e => {
+          error = e
+        },
+      )
   }
 
-  async function remove(id: string) {
-    try {
-      await api.deleteProvider(id)
-      await refresh()
-    } catch (e) {
-      error = String(e)
-    }
+  function remove(id: string) {
+    void api.deleteProvider(id).match(
+      () => refresh(),
+      e => {
+        error = e
+      },
+    )
   }
 
   onMount(refresh)

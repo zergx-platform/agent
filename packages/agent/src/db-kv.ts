@@ -1,9 +1,9 @@
 import type { PresetRow } from '@rucoder-agent/schema'
 import { eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
-import type { Db } from './client.js'
-import { q } from './client.js'
-import { config, presets } from './schema.js'
+import type { Db } from './db-client.js'
+import { q } from './db-client.js'
+import { config, presets } from './db-schema.js'
 
 export const Presets = {
   list(db: Db): ResultAsync<PresetRow[], string> {

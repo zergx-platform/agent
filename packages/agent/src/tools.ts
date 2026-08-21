@@ -1,6 +1,7 @@
-import type { Bus, ToolResultEnvelope } from '@rucoder-agent/lib-bus'
-import { toolCallSubject, toolResultSubject } from '@rucoder-agent/lib-bus'
 import { jsonSchema, type Tool } from 'ai'
+import type { Bus, ToolResultEnvelope } from './bus.js'
+import { toolCallSubject, toolResultSubject } from './bus.js'
+import { parseLoose } from './db-client.js'
 
 export interface SessionCtx {
   org: string
@@ -91,11 +92,8 @@ export async function invokeToolViaBus(
 
   const first = (async (): Promise<ToolResultEnvelope> => {
     for await (const m of sub) {
-      try {
-        return JSON.parse(Buffer.from(m.data).toString('utf8'))
-      } catch {
-        // skip malformed message, keep waiting
-      }
+      const parsed = parseLoose(Buffer.from(m.data))
+      if (parsed.isOk()) return parsed.value as ToolResultEnvelope
     }
     throw new Error(`tool '${name}' result stream closed`)
   })()

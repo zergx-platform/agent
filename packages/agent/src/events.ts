@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import type { Bus } from '@rucoder-agent/lib-bus'
-import { sseSubject } from '@rucoder-agent/lib-bus'
+import type { Bus } from './bus.js'
+import { sseSubject } from './bus.js'
 
 export interface AgentEventDeps {
   bus: Bus

@@ -2,11 +2,13 @@ import {
   connect,
   DeliverPolicy,
   type JetStreamClient,
+  type KV,
   type NatsConnection,
   type Sub,
   type Subscription,
 } from 'nats'
 import { ResultAsync } from 'neverthrow'
+import { parseLoose, stringify } from './json.js'
 
 // Stream / subject topology — must stay byte-compatible with rucoder-sdk-bus
 // (the Rust side) so both agent replicas interoperate on the same cluster.
@@ -17,10 +19,16 @@ export const STREAM_NOTIFY = 'RCODER_NOTIFY'
 export const STREAM_TOOL_LOG = 'RCODER_TOOL_LOG'
 export const BUCKET_TOOL = 'RCODER_TOOL'
 
+/** KV bucket holding per-session run-state leases (running/idle). */
+export const BUCKET_SESSION_STATE = 'RCODER_SESSION_STATE'
+
 export const mailboxSubject = (sid: string) => `mailbox.session.${sid}`
 export const sseSubject = (sid: string) => `sse.session.${sid}`
 export const toolCallSubject = (name: string) => `tool.call.${name}`
 export const toolResultSubject = (callId: string) => `tool.result.${callId}`
+
+/** Wildcard covering every session mailbox wake subject. */
+export const MAILBOX_WILDCARD = 'mailbox.session.>'
 
 export interface ToolCallEnvelope {
   call_id: string
@@ -44,17 +52,26 @@ const STREAMS: Array<{ name: string; subjects: string[] }> = [
 
 const DAY_NS = 24 * 3600 * 1_000_000_000
 
+/** Lease TTL for per-session run-state keys (ms). */
+const SESSION_LEASE_MS = 30_000
+
+export interface WakeMessage {
+  session_id: string
+  type: 'user_prompt' | 'interrupt' | 'event'
+}
+
 export class Bus {
   constructor(
     private readonly nc: NatsConnection,
     private readonly js: JetStreamClient,
+    private readonly sessionState: KV,
   ) {}
 
   /** Core (non-durable) publish. */
   publish(subject: string, payload: unknown): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
       Promise.resolve(
-        this.nc.publish(subject, Buffer.from(JSON.stringify(payload))),
+        this.nc.publish(subject, Buffer.from(stringify(payload))),
       ),
       e => `publish ${subject}: ${String(e)}`,
     )
@@ -64,7 +81,7 @@ export class Bus {
   publishStream(subject: string, payload: unknown): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
       this.js
-        .publish(subject, Buffer.from(JSON.stringify(payload)))
+        .publish(subject, Buffer.from(stringify(payload)))
         .then(() => undefined),
       e => `stream publish ${subject}: ${String(e)}`,
     )
@@ -75,6 +92,48 @@ export class Bus {
     return ResultAsync.fromPromise(
       Promise.resolve(this.nc.subscribe(subject)),
       e => `subscribe ${subject}: ${String(e)}`,
+    )
+  }
+
+  /**
+   * Subscribe to every session's mailbox wake wildcard so a replica can react
+   * to newly-enqueued work for any session.
+   */
+  subscribeMailboxWake(): ResultAsync<Subscription, string> {
+    return this.subscribe(MAILBOX_WILDCARD)
+  }
+
+  /**
+   * Atomically claim the per-session run state: `create` fails if the key
+   * already exists (someone else is running), so exactly one replica wins.
+   * The key carries a TTL so a crashed holder is automatically released.
+   */
+  claimSession(sid: string): ResultAsync<boolean, string> {
+    return ResultAsync.fromPromise(
+      this.sessionState.create(sid, Buffer.from('running')).then(() => true),
+      e => `claim session ${sid}: ${String(e)}`,
+    ).orElse(err => {
+      // 10071 == "wrong last sequence" (key already exists). This is the
+      // expected contention case, not a genuine error.
+      const code = (err as unknown as { api_error?: { err_code?: number } })
+        .api_error?.err_code
+      if (code === 10071) {
+        return ResultAsync.fromSafePromise<boolean, string>(
+          Promise.resolve(false),
+        )
+      }
+      return ResultAsync.fromPromise<boolean, string>(
+        Promise.reject(new Error(err)),
+        () => err,
+      )
+    })
+  }
+
+  /** Release the per-session run-state lease (back to idle). */
+  releaseSession(sid: string): ResultAsync<void, string> {
+    return ResultAsync.fromPromise(
+      this.sessionState.delete(sid).then(() => undefined),
+      e => `release session ${sid}: ${String(e)}`,
     )
   }
 
@@ -98,11 +157,8 @@ export class Bus {
           let got = 0
           for await (const m of iter) {
             got++
-            try {
-              out.push(JSON.parse(Buffer.from(m.data).toString('utf8')))
-            } catch {
-              // skip malformed
-            }
+            const parsed = parseLoose(Buffer.from(m.data))
+            if (parsed.isOk()) out.push(parsed.value)
           }
           await iter.close()
           await consumer.delete()
@@ -167,7 +223,13 @@ export function connectBus(url: string): ResultAsync<Bus, string> {
           ttl: DAY_NS,
         } as never)
       }
-      return new Bus(nc, js)
+      // Per-session run-state KV with a TTL so crashed holders self-release.
+      const sessionState = await js.views.kv(BUCKET_SESSION_STATE, {
+        history: 1,
+        ttl: SESSION_LEASE_MS,
+        description: 'rucoder per-session run-state leases',
+      })
+      return new Bus(nc, js, sessionState)
     })(),
     e => `nats connect: ${String(e)}`,
   )
@@ -178,10 +240,7 @@ export async function* subscriptionToIterator(
   sub: Sub<import('nats').Msg>,
 ): AsyncGenerator<unknown, void, unknown> {
   for await (const m of sub) {
-    try {
-      yield JSON.parse(Buffer.from(m.data).toString('utf8'))
-    } catch {
-      // ignore malformed
-    }
+    const parsed = parseLoose(Buffer.from(m.data))
+    if (parsed.isOk()) yield parsed.value
   }
 }

@@ -4,6 +4,10 @@ import { configRoutes } from './config.js'
 import { providerRoutes } from './providers.js'
 import { sessionRoutes } from './sessions.js'
 
+export type RoutesType = typeof sessionRoutes &
+  typeof providerRoutes &
+  typeof configRoutes
+
 export function buildRoutes(): Hono<AppEnv> {
   const api = new Hono<AppEnv>()
 
@@ -11,7 +15,8 @@ export function buildRoutes(): Hono<AppEnv> {
 
   api.route('/sessions', sessionRoutes)
   api.route('/providers', providerRoutes)
-  api.route('/', configRoutes) // presets, config, tool-config, tools, models, recore-config
+  // configRoutes uses flat paths (/presets /config ...) mounted at the /api/v1 root.
+  api.route('/', configRoutes)
 
   return api
 }

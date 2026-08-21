@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { api, type ApiMessage, type Session } from '$lib/api'
+  import { api, type Session } from '$lib/api'
+  import { parseLoose } from '@rucoder-agent/schema'
   import { markdown } from '$lib/markdown'
   import { Send, Square } from '@lucide/svelte'
 
@@ -18,40 +19,45 @@
 
   let es: EventSource | null = null
 
-  async function loadHistory() {
-    try {
-      const r = await api.listMessages(active.id)
-      messages = r.messages
-        .filter(m => m.role !== 'system')
-        .map(m => ({ id: m.id, role: m.role, content: m.content }))
-    } catch (e) {
-      error = String(e)
-    }
+  function loadHistory() {
+    void api.listMessages(active.id).match(
+      rows => {
+        messages = rows
+          .filter(m => m.role !== 'system')
+          .map(m => ({ id: m.id, role: m.role, content: m.content }))
+      },
+      e => {
+        error = e
+      },
+    )
   }
 
   function startStream() {
     stopStream()
     es = new EventSource(api.sessionsStreamUrl(active.id))
     es.onmessage = ev => {
-      let data: { event: string; params?: Record<string, unknown> }
-      try {
-        data = JSON.parse(ev.data)
-      } catch {
-        return
-      }
-      const p = data.params ?? {}
-      if (data.event === 'text-delta' && typeof p.text === 'string') {
-        assistantBuf += p.text
-      } else if (data.event === 'turn-complete') {
-        flushAssistant()
-        streaming = false
-        void onrefresh()
-        stopStream()
-      } else if (data.event === 'error') {
-        error = typeof p.message === 'string' ? p.message : 'turn error'
-        streaming = false
-        stopStream()
-      }
+      parseLoose(ev.data).match(
+        value => {
+          const data = value as {
+            event?: string
+            params?: Record<string, unknown>
+          }
+          const p = data.params ?? {}
+          if (data.event === 'text-delta' && typeof p.text === 'string') {
+            assistantBuf += p.text
+          } else if (data.event === 'turn-complete') {
+            flushAssistant()
+            streaming = false
+            void onrefresh()
+            stopStream()
+          } else if (data.event === 'error') {
+            error = typeof p.message === 'string' ? p.message : 'turn error'
+            streaming = false
+            stopStream()
+          }
+        },
+        () => {},
+      )
     }
     es.onerror = () => stopStream()
   }
@@ -73,44 +79,47 @@
     }
   }
 
-  async function send() {
+  function send() {
     const text = input.trim()
     if (text === '' || streaming) return
-    messages = [...messages, { id: `local-${Date.now()}`, role: 'user', content: text }]
+    messages = [
+      ...messages,
+      { id: `local-${Date.now()}`, role: 'user', content: text },
+    ]
     input = ''
     assistantBuf = ''
     streaming = true
     error = ''
-    try {
-      await api.prompt(active.id, text)
-      startStream()
-    } catch (e) {
-      error = String(e)
-      streaming = false
-    }
+    void api.prompt(active.id, text).match(
+      () => startStream(),
+      e => {
+        error = e
+        streaming = false
+      },
+    )
   }
 
-  async function interrupt() {
+  function interrupt() {
     stopStream()
     streaming = false
     flushAssistant()
-    try {
-      await api.interrupt(active.id)
-      await loadHistory()
-    } catch (e) {
-      error = String(e)
-    }
+    void api.interrupt(active.id).match(
+      () => loadHistory(),
+      e => {
+        error = e
+      },
+    )
   }
 
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      void send()
+      send()
     }
   }
 
   onMount(() => {
-    void loadHistory()
+    loadHistory()
     return () => stopStream()
   })
 
@@ -121,8 +130,8 @@
 
 <div class="h-full flex flex-col">
   <header class="shrink-0 px-4 py-2 border-b border-border flex items-center gap-2 text-sm">
-    <span class="font-medium">{active.org}/{active.repo}</span>
-    <span class="text-muted">#{active.branch}</span>
+    <span class="font-medium">{active.name || `${active.org}/${active.repo}`}</span>
+    <span class="text-muted">{active.org}/{active.repo} · #{active.branch}</span>
   </header>
 
   <div class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4" use:scrollToBottom={messages.length + (assistantBuf.length > 0 ? 1 : 0)}>
@@ -179,7 +188,7 @@
         <button
           class="bg-accent text-accent-fg rounded p-2 disabled:opacity-50"
           disabled={input.trim() === ''}
-          onclick={() => void send()}
+          onclick={() => send()}
           title="Send"
         >
           <Send class="size-4" />

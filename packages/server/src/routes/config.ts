@@ -1,9 +1,20 @@
 import { zValidator } from '@hono/zod-validator'
-import { discoverTools } from '@rucoder-agent/lib-agent'
-import { Config, Presets, Providers } from '@rucoder-agent/lib-db'
+import {
+  Config,
+  discoverTools,
+  Presets,
+  Providers,
+  parse,
+  parseLoose,
+  stringify,
+} from '@rucoder-agent/agent'
 import { ConfigBodySchema, PresetBodySchema } from '@rucoder-agent/schema'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import type { AppEnv } from '../context.js'
+
+const ModelsArraySchema = z.array(z.string())
+const HeadersRecordSchema = z.record(z.string(), z.unknown())
 
 export const configRoutes = new Hono<AppEnv>()
 
@@ -23,7 +34,7 @@ configRoutes.post('/presets', zValidator('json', PresetBodySchema), async c => {
   const r = await Presets.upsert(db, {
     id: b.id,
     systemPrompt: b.system_prompt ?? '',
-    tools: JSON.stringify(b.tools ?? []),
+    tools: stringify(b.tools ?? []),
     maxTurns: b.max_turns ?? 0,
   })
   return r.isErr()
@@ -45,8 +56,9 @@ configRoutes.get('/config', async c => {
   const { db } = c.get('deps')
   const r = await Config.get(db, 'providers')
   // Providers live in their own table now; expose them for UI compatibility.
-  const providers = r.isErr() || r.value === null ? null : JSON.parse(r.value)
-  return c.json({ providers: providers ?? {} })
+  const providers =
+    r.isOk() && r.value !== null ? parseLoose(r.value).unwrapOr({}) : {}
+  return c.json({ providers })
 })
 
 configRoutes.get('/config/:key', async c => {
@@ -73,11 +85,8 @@ configRoutes.get('/tool-config', async c => {
   const { db } = c.get('deps')
   const r = await Config.get(db, 'tool_config')
   if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
-  try {
-    return c.json(r.value === null ? {} : JSON.parse(r.value))
-  } catch {
-    return c.json({})
-  }
+  const value = r.value === null ? {} : parseLoose(r.value).unwrapOr({})
+  return c.json(value)
 })
 
 configRoutes.put('/tool-config', async c => {
@@ -86,7 +95,7 @@ configRoutes.put('/tool-config', async c => {
   if (body === null) {
     return c.json({ ok: false, error: 'invalid json body' }, 400)
   }
-  const r = await Config.set(db, 'tool_config', JSON.stringify(body))
+  const r = await Config.set(db, 'tool_config', stringify(body))
   return r.isErr()
     ? c.json({ ok: false, error: r.error }, 500)
     : c.json({ ok: true, config: body })
@@ -113,12 +122,8 @@ configRoutes.get('/models', async c => {
   if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
   const models: string[] = []
   for (const p of r.value) {
-    try {
-      const arr = JSON.parse(p.models)
-      if (Array.isArray(arr)) models.push(...arr)
-    } catch {
-      // skip malformed provider row
-    }
+    const arr = parse(ModelsArraySchema, p.models)
+    if (arr.isOk()) models.push(...arr.value)
   }
   if (!models.includes(llm.defaultModelId()))
     models.unshift(llm.defaultModelId())
@@ -138,8 +143,8 @@ configRoutes.get('/recore-config', async c => {
       api_type: p.api_type,
       base_url: p.base_url,
       api_key: p.api_key,
-      headers: JSON.parse(p.headers),
-      models: JSON.parse(p.models),
+      headers: parse(HeadersRecordSchema, p.headers).unwrapOr({}),
+      models: parse(ModelsArraySchema, p.models).unwrapOr([]),
     }
   }
   return c.json({

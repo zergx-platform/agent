@@ -9,37 +9,46 @@
   let sessions: Session[] = $state([])
   let activeId: string | null = $state(null)
   let showProviders = $state(false)
+  let name = $state('')
   let org = $state('')
   let repo = $state('')
   let branch = $state('main')
   let creating = $state(false)
   let error = $state('')
 
-  async function refresh() {
-    try {
-      sessions = await api.listSessions()
-    } catch (e) {
-      error = String(e)
-    }
+  function refresh() {
+    void api.listSessions().match(
+      rows => {
+        sessions = rows
+      },
+      e => {
+        error = e
+      },
+    )
   }
 
-  async function createSession() {
-    if (!org.trim() || !repo.trim() || !branch.trim()) return
+  function createSession() {
+    if (!name.trim() || !org.trim() || !repo.trim() || !branch.trim()) return
     creating = true
     error = ''
-    try {
-      const r = await api.createSession({
+    void api
+      .createSession({
+        name: name.trim(),
         org: org.trim(),
         repo: repo.trim(),
         branch: branch.trim(),
       })
-      activeId = r.session_id
-      await refresh()
-    } catch (e) {
-      error = String(e)
-    } finally {
-      creating = false
-    }
+      .match(
+        r => {
+          activeId = r.session_id
+          creating = false
+          refresh()
+        },
+        e => {
+          error = e
+          creating = false
+        },
+      )
   }
 
   onMount(refresh)
@@ -64,6 +73,7 @@
       </div>
 
       <div class="mt-3 flex flex-col gap-2">
+        <input bind:value={name} placeholder="name" />
         <input bind:value={org} placeholder="org" />
         <input bind:value={repo} placeholder="repo" />
         <input bind:value={branch} placeholder="branch" />

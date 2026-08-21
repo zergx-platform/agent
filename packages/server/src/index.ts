@@ -1,11 +1,18 @@
 import { relative } from 'node:path'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { type AgentDeps, runSessionTurn } from '@rucoder-agent/lib-agent'
-import { type Bus, connectBus } from '@rucoder-agent/lib-bus'
-import { loadConfig } from '@rucoder-agent/lib-config'
-import { connectDb, type Db, Mailbox } from '@rucoder-agent/lib-db'
-import { LlmRegistry } from '@rucoder-agent/lib-llm'
+import {
+  type AgentDeps,
+  type Bus,
+  connectBus,
+  connectDb,
+  type Db,
+  LlmRegistry,
+  loadConfig,
+  Mailbox,
+  runSessionTurn,
+  watchMailboxWake,
+} from '@rucoder-agent/agent'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import type { Sql } from 'postgres'
@@ -70,6 +77,10 @@ async function main(): Promise<void> {
     }),
   )
 
+  // Watch every session's mailbox wake wildcard so this replica can claim and
+  // run work for any session — the horizontal scale-out trigger.
+  const stopWake = watchMailboxWake(deps)
+
   const server = serve({ fetch: app.fetch, port: config.port }, info => {
     console.log(
       `[server] rucoder-agent-ts listening on :${info.port} (pid ${process.pid})`,
@@ -78,6 +89,7 @@ async function main(): Promise<void> {
 
   const shutdown = () => {
     console.log('[server] shutting down')
+    stopWake()
     server.close(() => {
       bus.close()
       void (db.$client as Sql).end().catch(() => process.exit(0))
@@ -88,7 +100,8 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown)
 
   // Recovery: re-run turns for sessions whose prompts were enqueued while no
-  // replica was alive. The advisory lock keeps this safe across replicas.
+  // replica was alive. The claim mechanism keeps this safe across replicas
+  // (exactly one wins the per-session lease).
   const pending = await Mailbox.pendingSessions(db)
   if (pending.isOk()) {
     for (const sid of pending.value) {

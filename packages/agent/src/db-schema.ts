@@ -7,7 +7,7 @@ import {
 } from 'drizzle-orm/pg-core'
 
 export const sessions = pgTable('sessions', {
-  id: text('id').primaryKey(),
+  name: text('name').primaryKey(),
   org: text('org').notNull(),
   repo: text('repo').notNull(),
   branch: text('branch').notNull(),
@@ -35,9 +35,6 @@ export const sessions = pgTable('sessions', {
 
 export const messages = pgTable('messages', {
   id: text('id').primaryKey(),
-  sessionId: text('session_id')
-    .notNull()
-    .references(() => sessions.id, { onDelete: 'cascade' }),
   role: text('role').notNull(),
   content: text('content').notNull().default(''),
   partsJson: text('parts_json').notNull().default('[]'),
@@ -54,9 +51,6 @@ export const parts = pgTable('parts', {
   messageId: text('message_id')
     .notNull()
     .references(() => messages.id, { onDelete: 'cascade' }),
-  sessionId: text('session_id')
-    .notNull()
-    .references(() => sessions.id, { onDelete: 'cascade' }),
   type: text('type').notNull(),
   changeId: text('change_id'),
   seq: integer('seq').notNull().default(0),
@@ -67,7 +61,7 @@ export const mailbox = pgTable('mailbox', {
   id: text('id').primaryKey(),
   sessionId: text('session_id')
     .notNull()
-    .references(() => sessions.id, { onDelete: 'cascade' }),
+    .references(() => sessions.name, { onDelete: 'cascade' }),
   msgType: text('msg_type').notNull(),
   payload: text('payload').notNull().default('{}'),
   effectiveAt: text('effective_at'),

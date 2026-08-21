@@ -1,14 +1,14 @@
 import type { PartRow } from '@rucoder-agent/schema'
-import { eq } from 'drizzle-orm'
-import type { ResultAsync } from 'neverthrow'
-import type { Db } from './client.js'
-import { q, uuid } from './client.js'
-import { parts } from './schema.js'
+import { inArray } from 'drizzle-orm'
+import { ResultAsync } from 'neverthrow'
+import type { Db } from './db-client.js'
+import { q, uuid } from './db-client.js'
+import { parts } from './db-schema.js'
+import { stringify } from './json.js'
 
 const toRow = (r: typeof parts.$inferSelect): PartRow => ({
   id: r.id,
   message_id: r.messageId,
-  session_id: r.sessionId,
   type: r.type,
   change_id: r.changeId,
   seq: r.seq,
@@ -18,7 +18,6 @@ const toRow = (r: typeof parts.$inferSelect): PartRow => ({
 export const Parts = {
   insert(
     db: Db,
-    sessionId: string,
     messageId: string,
     type: string,
     seq: number,
@@ -30,40 +29,30 @@ export const Parts = {
       () =>
         db.insert(parts).values({
           id,
-          sessionId,
           messageId,
           type,
           seq,
           changeId,
-          data: JSON.stringify(data ?? {}),
+          data: stringify(data ?? {}),
         }),
       'insert part',
     ).map(() => id)
   },
 
-  listBySession(db: Db, sessionId: string): ResultAsync<PartRow[], string> {
+  /** Parts for a set of message ids (COW-shared chains). */
+  listByMessages(db: Db, messageIds: string[]): ResultAsync<PartRow[], string> {
+    if (messageIds.length === 0) {
+      return ResultAsync.fromSafePromise(Promise.resolve([] as PartRow[]))
+    }
     return q(
       () =>
         db
           .select()
           .from(parts)
-          .where(eq(parts.sessionId, sessionId))
+          .where(inArray(parts.messageId, messageIds))
           .orderBy(parts.messageId, parts.seq)
           .then(rows => rows.map(toRow)),
-      'list parts',
-    )
-  },
-
-  listByMessage(db: Db, messageId: string): ResultAsync<PartRow[], string> {
-    return q(
-      () =>
-        db
-          .select()
-          .from(parts)
-          .where(eq(parts.messageId, messageId))
-          .orderBy(parts.seq)
-          .then(rows => rows.map(toRow)),
-      'list parts by message',
+      'list parts by messages',
     )
   },
 }

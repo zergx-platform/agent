@@ -1,13 +1,12 @@
 import type { MessageRow } from '@rucoder-agent/schema'
 import { eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
-import type { Db } from './client.js'
-import { nowStr, q, uuid } from './client.js'
-import { messages } from './schema.js'
+import type { Db } from './db-client.js'
+import { nowStr, q, uuid } from './db-client.js'
+import { messages } from './db-schema.js'
 
 const toRow = (r: typeof messages.$inferSelect): MessageRow => ({
   id: r.id,
-  session_id: r.sessionId,
   role: r.role,
   content: r.content,
   parts_json: r.partsJson,
@@ -19,11 +18,12 @@ const toRow = (r: typeof messages.$inferSelect): MessageRow => ({
 
 export interface ChainMessage extends MessageRow {}
 
+export type MessageRole = 'user' | 'assistant' | 'event'
+
 export const Messages = {
   insert(
     db: Db,
-    sessionId: string,
-    role: 'user' | 'assistant' | 'system',
+    role: MessageRole,
     content: string,
     prevId: string | null,
   ): ResultAsync<string, string> {
@@ -32,7 +32,6 @@ export const Messages = {
       () =>
         db.insert(messages).values({
           id,
-          sessionId,
           role,
           content,
           prevId,
@@ -65,12 +64,10 @@ export const Messages = {
    */
   chain(
     db: Db,
-    sessionId: string,
+    tipId: string | null,
     limit: number,
     before: string | null,
-    tipId: string | null,
   ): ResultAsync<ChainMessage[], string> {
-    void sessionId // chain is walked by id; kept for API symmetry
     return q(async () => {
       let cursor: string | null
       if (before !== null) {
@@ -81,6 +78,9 @@ export const Messages = {
           .limit(1)
         cursor = bm[0]?.prevId ?? null
       } else {
+        // COW: the chain is walked purely on `prev_id`, starting from the
+        // session's tip. A fork shares parent messages because its tip points
+        // at the same message row (zero-copy fork).
         cursor = tipId
       }
       const chain: Row[] = []
@@ -106,16 +106,11 @@ export const Messages = {
    * removed ids (in chain order). The new tip becomes the target's prev_id,
    * which the caller sets.
    */
-  deleteAfter(
-    db: Db,
-    sessionId: string,
-    targetId: string,
-  ): ResultAsync<string[], string> {
+  deleteAfter(db: Db, targetId: string): ResultAsync<string[], string> {
     return q(async () => {
       const rows = await db
         .select({ id: messages.id, prevId: messages.prevId })
         .from(messages)
-        .where(eq(messages.sessionId, sessionId))
       const byPrev = new Map<string, string>()
       for (const r of rows) {
         if (r.prevId !== null) byPrev.set(r.prevId, r.id)
