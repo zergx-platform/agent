@@ -9,7 +9,7 @@
     "./*": "./dist/*"
   },
   "scripts": {
-    "build": "tsc --emitDeclarationOnly && node ../../scripts/build-esbuild.mjs",
+    "build": "tsc --emitDeclarationOnly && node ../../scripts/build-esbuild.mjs && node ../../scripts/gen-extension-schema.mjs",
     "check": "tsc --noEmit",
     "test": "vitest run"
   },

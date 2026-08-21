@@ -235,3 +235,47 @@ export const CatalogProvidersSchema = z.record(
   CatalogProviderSchema,
 )
 export type CatalogProviders = z.infer<typeof CatalogProvidersSchema>
+
+// ---- extension server protocol ----------------
+//
+// The single source of truth for the agent ↔ extension-server contract. TS
+// clients import these zod schemas directly; Go/Rust clients are generated
+// from `z.toJSONSchema()` (see scripts/gen-extension-schema.mjs).
+
+/** A tool manifest entry (identical shape to the existing tool servers). */
+export const ExtensionToolSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  input_schema: z.record(z.string(), z.unknown()).optional(),
+})
+export type ExtensionTool = z.infer<typeof ExtensionToolSchema>
+
+/** A named template variable an extension can resolve (e.g. `org`, `repo`). */
+export const ExtensionVariableSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+})
+export type ExtensionVariable = z.infer<typeof ExtensionVariableSchema>
+
+/** The manifest an extension serves at GET /api/v1/extension. */
+export const ExtensionManifestSchema = z.object({
+  id: z.string(),
+  version: z.string(),
+  capabilities: z.array(z.enum(['tools', 'prompt'])),
+  tools: z.array(ExtensionToolSchema).optional(),
+  prompt: z
+    .object({
+      variables: z.array(ExtensionVariableSchema).optional(),
+    })
+    .optional(),
+})
+export type ExtensionManifest = z.infer<typeof ExtensionManifestSchema>
+
+/** A resolved template variable value (request/reply body). */
+export const ExtensionVariableValueSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+})
+export type ExtensionVariableValue = z.infer<
+  typeof ExtensionVariableValueSchema
+>

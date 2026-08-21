@@ -4,6 +4,7 @@ import {
   type JetStreamClient,
   type KV,
   type NatsConnection,
+  RequestStrategy,
   type Sub,
   type Subscription,
 } from 'nats'
@@ -61,6 +62,7 @@ export class Bus {
     private readonly nc: NatsConnection,
     private readonly js: JetStreamClient,
     private readonly sessionState: KV,
+    private readonly requestTimeoutMs = 2000,
   ) {}
 
   /** Core (non-durable) publish. */
@@ -88,6 +90,48 @@ export class Bus {
     return ResultAsync.fromPromise(
       Promise.resolve(this.nc.subscribe(subject)),
       e => `subscribe ${subject}: ${String(e)}`,
+    )
+  }
+
+  /**
+   * NATS request/reply (auto reply-inbox). Resolves with the reply payload
+   * bytes; the caller validates them with a zod schema.
+   */
+  request(subject: string, payload: unknown): ResultAsync<Uint8Array, string> {
+    return ResultAsync.fromPromise(
+      this.nc
+        .request(subject, Buffer.from(JSON.stringify(payload)), {
+          timeout: this.requestTimeoutMs,
+        })
+        .then(m => m.data),
+      e => `request ${subject}: ${String(e)}`,
+    )
+  }
+
+  /**
+   * NATS request/reply fan-out: broadcast to every responder on `subject` and
+   * collect all replies until `maxWait` expires (timer strategy). Returns the
+   * raw reply payloads; the caller validates each with a zod schema.
+   */
+  requestMany(
+    subject: string,
+    payload: unknown,
+    maxWaitMs: number,
+  ): ResultAsync<Uint8Array[], string> {
+    return ResultAsync.fromPromise(
+      (async () => {
+        const replies = await this.nc.requestMany(
+          subject,
+          Buffer.from(JSON.stringify(payload)),
+          { strategy: RequestStrategy.Timer, maxWait: maxWaitMs },
+        )
+        const out: Uint8Array[] = []
+        for await (const m of replies) {
+          out.push(m.data)
+        }
+        return out
+      })(),
+      e => `requestMany ${subject}: ${String(e)}`,
     )
   }
 
@@ -120,9 +164,8 @@ export class Bus {
           Promise.resolve(false),
         )
       }
-      return ResultAsync.fromPromise<boolean, string>(
-        Promise.reject(err),
-        e => String(e),
+      return ResultAsync.fromPromise<boolean, string>(Promise.reject(err), e =>
+        String(e),
       )
     })
   }

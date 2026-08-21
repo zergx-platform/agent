@@ -5,6 +5,7 @@ import {
   Presets,
   Providers,
   parse,
+  renderTemplate,
 } from '@rucoder-agent/agent'
 import { ConfigBodySchema, PresetBodySchema } from '@rucoder-agent/schema'
 import { ResultAsync } from 'neverthrow'
@@ -68,6 +69,34 @@ const deletePresetRoute = createRoute({
       content: {
         'application/json': { schema: z.object({ ok: z.boolean() }) },
       },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const previewPresetRoute = createRoute({
+  method: 'get',
+  path: '/presets/{id}/preview',
+  summary: 'Preview a preset system prompt with template variables rendered',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Rendered prompt',
+      content: {
+        'application/json': {
+          schema: z.object({
+            template: z.string(),
+            rendered: z.string(),
+          }),
+        },
+      },
+    },
+    404: {
+      description: 'Not found',
+      content: { 'application/json': { schema: ErrorSchema } },
     },
     500: {
       description: 'Error',
@@ -270,6 +299,18 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
       ? c.json({ ok: false, error: r.error }, 500)
       : c.json({ ok: true }, 200)
   })
+  .openapi(previewPresetRoute, async c => {
+    const { db, bus } = c.get('deps')
+    const id = c.req.valid('param').id
+    const r = await Presets.get(db, id)
+    if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
+    if (r.value === null) {
+      return c.json({ ok: false, error: 'preset not found' }, 404)
+    }
+    const template = r.value.system_prompt
+    const rendered = await renderTemplate(template, bus)
+    return c.json({ template, rendered }, 200)
+  })
   .openapi(getConfigRoute, async c => {
     const { db } = c.get('deps')
     const r = await Config.get(db, 'providers')
@@ -318,7 +359,7 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
   })
   .openapi(listToolsRoute, async c => {
     const deps = c.get('deps')
-    const tools = await discoverTools(deps.config.toolServers)
+    const tools = await discoverTools(deps.bus)
     return c.json(
       {
         tools: tools.map(t => ({

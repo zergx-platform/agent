@@ -223,6 +223,13 @@ export const api = {
       'delete preset',
     ),
 
+  previewPreset: (id: string) =>
+    request(
+      () => client.presets[':id'].preview.$get({ param: { id } }),
+      z.object({ template: z.string(), rendered: z.string() }),
+      'preview preset',
+    ),
+
   listMailbox: (sid: string) =>
     request(
       () => client.sessions[':id'].mailbox.$get({ param: { id: sid } }),

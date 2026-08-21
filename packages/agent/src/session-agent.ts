@@ -12,6 +12,7 @@ import { Messages } from './db-messages.js'
 import { Parts } from './db-parts.js'
 import { Sessions } from './db-sessions.js'
 import { events, pushEvent } from './events.js'
+import { renderTemplate } from './extensions.js'
 import { rebuildHistory } from './history.js'
 import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
@@ -345,7 +346,7 @@ async function prepare(
   const toolNames = presetTools.isOk() ? presetTools.value : []
   const whitelist = toolNames.length > 0 ? new Set(toolNames) : null
 
-  const discovered = await discoverTools(deps.config.toolServers)
+  const discovered = await discoverTools(deps.bus)
   const active =
     whitelist === null
       ? discovered
@@ -362,6 +363,11 @@ async function prepare(
     '</env>',
   ].join('\n')
 
+  // Render extension-provided template variables ({{ext.<id>.<name>}}) and
+  // built-ins ({{date}}/{{datetime}}) into the system prompt. Unresolvable
+  // variables are left as literal placeholders.
+  const renderedPrompt = await renderTemplate(systemPrompt, deps.bus)
+
   const maxTurns =
     presetRow !== null && presetRow.max_turns > 0
       ? presetRow.max_turns
@@ -372,7 +378,7 @@ async function prepare(
 
   return {
     tools,
-    system: `${systemPrompt}\n\n${env}`,
+    system: `${renderedPrompt}\n\n${env}`,
     maxTurns,
     resolvedModel: resolved.value.modelId,
     model: resolved.value.model,

@@ -17,6 +17,8 @@
   let systemPrompt = $state('')
   let toolsText = $state('')
   let maxTurns = $state(30)
+  let preview = $state('')
+  let previewing = $state(false)
 
   function refresh() {
     void api.listPresets().match(
@@ -25,6 +27,21 @@
       },
       e => {
         error = e
+      },
+    )
+  }
+
+  function previewPreset(pid: string) {
+    previewing = true
+    preview = ''
+    void api.previewPreset(pid).match(
+      r => {
+        preview = r.rendered
+        previewing = false
+      },
+      e => {
+        preview = e
+        previewing = false
       },
     )
   }
@@ -84,6 +101,15 @@
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Preview"
+            title="Preview"
+            onclick={() => previewPreset(p.id)}
+          >
+            <Plus class="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             aria-label="Delete"
             title="Delete"
             onclick={() => remove(p.id)}
@@ -92,6 +118,13 @@
           </Button>
         </div>
       {/each}
+
+      {#if preview !== ''}
+        <div class="bg-muted rounded px-3 py-2 text-xs whitespace-pre-wrap">
+          <div class="text-muted-foreground font-medium uppercase mb-1">Rendered system prompt</div>
+          {preview}
+        </div>
+      {/if}
 
       <div class="border-t border-border pt-3 flex flex-col gap-2">
         <div class="text-xs text-muted-foreground font-medium uppercase">New / edit preset</div>

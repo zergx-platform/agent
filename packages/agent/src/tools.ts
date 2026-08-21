@@ -1,8 +1,13 @@
+import {
+  ExtensionManifestSchema,
+  type ExtensionTool,
+} from '@rucoder-agent/schema'
 import { jsonSchema, type Tool } from 'ai'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { Bus } from './bus.js'
 import { toolCallSubject, toolResultSubject } from './bus.js'
+import { EXTENSION_DISCOVER_SUBJECT } from './extensions.js'
 import {
   parse,
   type ToolResult,
@@ -15,7 +20,6 @@ export const ToolManifestSchema = z.object({
   description: z.string(),
   input_schema: z.record(z.string(), z.unknown()).optional(),
 })
-const ToolListSchema = z.object({ tools: z.array(ToolManifestSchema) })
 
 export interface DiscoveredTool {
   name: string
@@ -25,34 +29,36 @@ export interface DiscoveredTool {
 }
 
 /**
- * Discover tools from all tool servers' manifest endpoints. A server that is
- * unreachable or returns an invalid manifest is skipped.
+ * Discover tools from all extensions via a NATS broadcast. Every extension
+ * that declares `tools` capability contributes its tool manifests; a reply
+ * that fails validation is skipped.
  */
 export async function discoverTools(
-  servers: string[],
+  bus: Bus,
+  maxWaitMs = 500,
 ): Promise<DiscoveredTool[]> {
+  const replies = await bus
+    .requestMany(EXTENSION_DISCOVER_SUBJECT, {}, maxWaitMs)
+    .unwrapOr([])
   const out: DiscoveredTool[] = []
-  for (const base of servers) {
-    const url = `${base.replace(/\/$/, '')}/api/v1/tools`
-    const result = await ResultAsync.fromPromise(
-      fetch(url).then(r =>
-        r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)),
-      ),
-      () => null,
-    )
-    if (result.isErr()) continue
-    const parsed = parse(ToolListSchema, JSON.stringify(result.value))
-    if (parsed.isOk()) {
-      for (const t of parsed.value.tools) {
-        out.push({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.input_schema ?? { type: 'object', properties: {} },
-        })
-      }
+  for (const bytes of replies) {
+    const parsed = parse(ExtensionManifestSchema, bytes)
+    if (parsed.isErr()) continue
+    const m = parsed.value
+    if (!m.capabilities.includes('tools')) continue
+    for (const t of m.tools ?? []) {
+      out.push(toolToDiscovered(t))
     }
   }
   return out
+}
+
+function toolToDiscovered(t: ExtensionTool): DiscoveredTool {
+  return {
+    name: t.name,
+    description: t.description,
+    inputSchema: t.input_schema ?? { type: 'object', properties: {} },
+  }
 }
 
 /**

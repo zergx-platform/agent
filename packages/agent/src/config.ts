@@ -3,18 +3,12 @@ export function envOr(key: string, fallback: string): string {
   return v !== undefined && v !== '' ? v : fallback
 }
 
-export function envList(key: string, fallback = ''): string[] {
-  return envOr(key, fallback)
-    .split(',')
-    .map(s => s.trim())
-    .filter(s => s.length > 0)
-}
-
 export interface ServerConfig {
   port: number
   postgresUrl: string
   natsUrl: string
-  toolServers: string[]
+  /** Discovery timeout for extension/tool NATS broadcasts (ms). */
+  extensionDiscoverMs: number
   toolTimeoutMs: number
   /** Default LLM when no registered provider advertises the session model. */
   llmApiType: string
@@ -40,7 +34,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: Number.parseInt(or('RUCODER_PORT', '8080'), 10),
     postgresUrl: pgUrl,
     natsUrl: or('NATS_URL', 'nats://nats.develop.svc.cluster.local:4222'),
-    toolServers: envList('RUCODER_TOOL_SERVERS'),
+    extensionDiscoverMs: Number.parseInt(
+      or('RUCODER_EXTENSION_DISCOVER_MS', '500'),
+      10,
+    ),
     toolTimeoutMs:
       Number.parseInt(or('RUCODER_TOOL_TIMEOUT_SECS', '600'), 10) * 1000,
     llmApiType: or('RUCODER_LLM_API_TYPE', 'openai-compatible'),
