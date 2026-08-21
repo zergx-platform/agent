@@ -48,17 +48,19 @@ function request<T>(
       v => v,
       () => null,
     )
+
+  const run = async (): Promise<Result<T, string>> => {
+    const res = await op()
+    const body: unknown = await parseBody(res)
+    if (!res.ok) {
+      const msg = (body as { error?: string } | null)?.error
+      return err<T, string>(msg ?? `${label} failed (HTTP ${res.status})`)
+    }
+    return decode(schema, body, label)
+  }
+
   return ResultAsync.fromPromise(
-    (async () => {
-      const res = await op()
-      const body: unknown = await parseBody(res)
-      if (!res.ok) {
-        const msg = (body as { error?: string } | null)?.error
-        return err<T, string>(msg ?? `${label} failed (HTTP ${res.status})`)
-      }
-      const decoded = decode(schema, body, label)
-      return decoded.isErr() ? err<T, string>(decoded.error) : ok(decoded.value)
-    })().andThen(r => r),
+    run().then(r => (r.isOk() ? r.value : Promise.reject(new Error(r.error)))),
     e => `${label}: ${String(e)}`,
   )
 }
