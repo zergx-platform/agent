@@ -105,16 +105,16 @@ async function main(): Promise<void> {
     return c.json({ ok: false, error: 'Internal Server Error' }, 500)
   })
 
-  // Mount the API under /api/v1 (runtime). The typed client is derived from
-  // `AppType` (root-relative paths) and includes `/api/v1` in its base URL.
-  const apiApp = new Hono<AppEnv>().route('/api/v1', app)
-
-  // Inject deps for every request (attached to the outermost app so it runs
-  // before the mounted sub-router's handlers).
-  apiApp.use('*', async (c, next) => {
+  // Inject deps for every request, on the inner app so it runs within the
+  // mounted /api/v1 sub-router's request context.
+  app.use('*', async (c, next) => {
     c.set('deps', deps)
     await next()
   })
+
+  // Mount the API under /api/v1 (runtime). The typed client is derived from
+  // `AppType` (root-relative paths) and includes `/api/v1` in its base URL.
+  const apiApp = new Hono<AppEnv>().route('/api/v1', app)
 
   // Serve the SPA from embedded SEA assets (single-executable deployment).
   apiApp.use('*', seaStatic())
