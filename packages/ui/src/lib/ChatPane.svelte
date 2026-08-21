@@ -3,7 +3,7 @@
   import { api, type Session } from '$lib/api'
   import { parseLoose } from '@rucoder-agent/schema'
   import { markdown } from '$lib/markdown'
-  import { Send, Square, Settings2, Undo2, GitFork, Mailbox } from '@lucide/svelte'
+  import { Send, Square, Settings2, Undo2, GitFork, Mailbox, FilePenLine } from '@lucide/svelte'
   import SettingsPanel from '$lib/SettingsPanel.svelte'
   import MailboxPanel from '$lib/MailboxPanel.svelte'
 
@@ -17,6 +17,8 @@
   let error = $state('')
   let showSettings = $state(false)
   let showMailbox = $state(false)
+  let showRename = $state(false)
+  let renameInput = $state('')
 
   let es: EventSource | null = null
 
@@ -117,6 +119,32 @@
     )
   }
 
+  function fork() {
+    void api.fork(active.name, `${active.name}-fork`).match(
+      () => {
+        onrefresh()
+      },
+      e => {
+        error = e
+      },
+    )
+  }
+
+  function rename() {
+    const newName = renameInput.trim()
+    if (newName === '') return
+    void api.rename(active.name, newName).match(
+      () => {
+        renameInput = ''
+        showRename = false
+        onrefresh()
+      },
+      e => {
+        error = e
+      },
+    )
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -151,6 +179,23 @@
       title="Undo"
     >
       <Undo2 class="size-4" />
+    </button>
+    <button
+      class="text-muted hover:text-fg p-1"
+      onclick={fork}
+      title="Fork"
+    >
+      <GitFork class="size-4" />
+    </button>
+    <button
+      class="text-muted hover:text-fg p-1"
+      onclick={() => {
+        renameInput = active.name
+        showRename = true
+      }}
+      title="Rename"
+    >
+      <FilePenLine class="size-4" />
     </button>
     <button
       class="text-muted hover:text-fg p-1"
@@ -230,4 +275,37 @@
 
 {#if showMailbox}
   <MailboxPanel name={active.name} onclose={() => (showMailbox = false)} />
+{/if}
+
+{#if showRename}
+  <button
+    class="fixed inset-0 bg-black/50 z-10"
+    aria-label="Close"
+    onclick={() => (showRename = false)}
+  ></button>
+  <div
+    class="fixed inset-0 z-20 flex items-center justify-center p-4 pointer-events-none"
+  >
+    <div
+      class="pointer-events-auto w-full max-w-xs bg-panel rounded-lg border border-border shadow-xl p-4 flex flex-col gap-3"
+    >
+      <h2 class="text-sm font-semibold">Rename session</h2>
+      <input bind:value={renameInput} placeholder="new name" />
+      <div class="flex justify-end gap-2">
+        <button
+          class="bg-panel2 border border-border rounded px-3 py-1.5 text-sm"
+          onclick={() => (showRename = false)}
+        >
+          Cancel
+        </button>
+        <button
+          class="bg-accent text-accent-fg rounded px-3 py-1.5 text-sm font-medium"
+          disabled={renameInput.trim() === ''}
+          onclick={rename}
+        >
+          Rename
+        </button>
+      </div>
+    </div>
+  </div>
 {/if}
