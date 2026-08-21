@@ -1,16 +1,17 @@
-import { zValidator } from '@hono/zod-validator'
+import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import { Providers, parse, validateApiType } from '@rucoder-agent/agent'
 import {
   ProviderBodySchema,
   ProviderTestBodySchema,
 } from '@rucoder-agent/schema'
-import { Hono } from 'hono'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
 
 const HeadersRecordSchema = z.record(z.string(), z.unknown())
 const ModelsArraySchema = z.array(z.string())
+
+const ErrorSchema = z.object({ ok: z.boolean(), error: z.string() })
 
 function providerToJson(p: {
   provider_id: string
@@ -32,22 +33,131 @@ function providerToJson(p: {
   }
 }
 
-export const providerRoutes = new Hono<AppEnv>()
-  .get('/', async c => {
+const listProvidersRoute = createRoute({
+  method: 'get',
+  path: '/providers',
+  summary: 'List registered providers',
+  responses: {
+    200: {
+      description: 'Providers',
+      content: {
+        'application/json': {
+          schema: z.object({ providers: z.record(z.string(), z.unknown()) }),
+        },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const getCatalogRoute = createRoute({
+  method: 'get',
+  path: '/providers/catalog',
+  summary: 'Prefilled provider catalog from models.dev cache',
+  responses: {
+    200: {
+      description: 'Catalog',
+      content: {
+        'application/json': { schema: z.object({ catalog: z.unknown() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const registerProviderRoute = createRoute({
+  method: 'post',
+  path: '/providers',
+  summary: 'Register or update a provider',
+  request: {
+    body: { content: { 'application/json': { schema: ProviderBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Registered',
+      content: {
+        'application/json': {
+          schema: z.object({ ok: z.boolean(), provider_id: z.string() }),
+        },
+      },
+    },
+    400: {
+      description: 'Bad request',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const deleteProviderRoute = createRoute({
+  method: 'delete',
+  path: '/providers/{id}',
+  summary: 'Delete a provider',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Deleted',
+      content: {
+        'application/json': { schema: z.object({ deleted: z.boolean() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const testProviderRoute = createRoute({
+  method: 'post',
+  path: '/providers/test',
+  summary: 'Test a provider (fetch /models)',
+  request: {
+    body: {
+      content: { 'application/json': { schema: ProviderTestBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Test result',
+      content: {
+        'application/json': {
+          schema: z.object({
+            ok: z.boolean(),
+            models: z.unknown().optional(),
+            error: z.string().optional(),
+          }),
+        },
+      },
+    },
+  },
+})
+
+export const providerRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(listProvidersRoute, async c => {
     const { db } = c.get('deps')
     const r = await Providers.list(db)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     const providers: Record<string, unknown> = {}
     for (const p of r.value) providers[p.provider_id] = providerToJson(p)
-    return c.json({ providers })
+    return c.json({ providers }, 200)
   })
-  .get('/catalog', async c => {
+  .openapi(getCatalogRoute, async c => {
     const { bus } = c.get('deps')
     const result = await bus.getModelsDev()
     if (result.isErr()) return c.json({ ok: false, error: result.error }, 500)
-    return c.json({ catalog: result.value ?? {} })
+    return c.json({ catalog: result.value ?? {} }, 200)
   })
-  .post('/', zValidator('json', ProviderBodySchema), async c => {
+  .openapi(registerProviderRoute, async c => {
     const deps = c.get('deps')
     const b = c.req.valid('json')
 
@@ -70,17 +180,16 @@ export const providerRoutes = new Hono<AppEnv>()
     })
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     deps.llm.invalidate()
-    return c.json({ ok: true, provider_id: b.provider_id })
+    return c.json({ ok: true, provider_id: b.provider_id }, 200)
   })
-  .delete('/:id', async c => {
+  .openapi(deleteProviderRoute, async c => {
     const deps = c.get('deps')
-    const r = await Providers.delete(deps.db, c.req.param('id'))
+    const r = await Providers.delete(deps.db, c.req.valid('param').id)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     deps.llm.invalidate()
-    return c.json({ deleted: true })
+    return c.json({ deleted: true }, 200)
   })
-  .post('/test', zValidator('json', ProviderTestBodySchema), async c => {
-    c.get('deps')
+  .openapi(testProviderRoute, async c => {
     const b = c.req.valid('json')
     const url = `${b.base_url.replace(/\/$/, '')}/models`
     const result = await ResultAsync.fromPromise(
@@ -94,18 +203,18 @@ export const providerRoutes = new Hono<AppEnv>()
       () => 'provider test: network error',
     )
     if (result.isErr()) {
-      return c.json({ ok: false, error: result.error })
+      return c.json({ ok: false, error: result.error }, 200)
     }
     const res = result.value
     if (!res.ok) {
-      return c.json({ ok: false, error: `HTTP ${res.status}` })
+      return c.json({ ok: false, error: `HTTP ${res.status}` }, 200)
     }
     const body = await ResultAsync.fromPromise(
       res.json().then(v => v as { data?: unknown[] }),
       () => 'provider test: invalid json',
     )
     if (body.isErr()) {
-      return c.json({ ok: false, error: body.error })
+      return c.json({ ok: false, error: body.error }, 200)
     }
-    return c.json({ ok: true, models: body.value.data ?? null })
+    return c.json({ ok: true, models: body.value.data ?? null }, 200)
   })

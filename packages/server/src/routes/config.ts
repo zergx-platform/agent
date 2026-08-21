@@ -1,4 +1,4 @@
-import { zValidator } from '@hono/zod-validator'
+import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   Config,
   discoverTools,
@@ -8,7 +8,6 @@ import {
   parseLoose,
 } from '@rucoder-agent/agent'
 import { ConfigBodySchema, PresetBodySchema } from '@rucoder-agent/schema'
-import { Hono } from 'hono'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
@@ -16,15 +15,243 @@ import type { AppEnv } from '../context.js'
 const ModelsArraySchema = z.array(z.string())
 const HeadersRecordSchema = z.record(z.string(), z.unknown())
 
-export const configRoutes = new Hono<AppEnv>()
-  .get('/presets', async c => {
+const ErrorSchema = z.object({ ok: z.boolean(), error: z.string() })
+
+// ---- presets ----
+
+const listPresetsRoute = createRoute({
+  method: 'get',
+  path: '/presets',
+  summary: 'List presets',
+  responses: {
+    200: {
+      description: 'Preset rows',
+      content: {
+        'application/json': { schema: z.array(z.unknown()) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const upsertPresetRoute = createRoute({
+  method: 'post',
+  path: '/presets',
+  summary: 'Create or update a preset',
+  request: {
+    body: { content: { 'application/json': { schema: PresetBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Ok',
+      content: {
+        'application/json': { schema: z.object({ ok: z.boolean() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const deletePresetRoute = createRoute({
+  method: 'delete',
+  path: '/presets/{id}',
+  summary: 'Delete a preset',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Ok',
+      content: {
+        'application/json': { schema: z.object({ ok: z.boolean() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+// ---- generic config ----
+
+const getConfigRoute = createRoute({
+  method: 'get',
+  path: '/config',
+  summary: 'Get providers config (compat)',
+  responses: {
+    200: {
+      description: 'Providers',
+      content: {
+        'application/json': { schema: z.object({ providers: z.unknown() }) },
+      },
+    },
+  },
+})
+
+const getConfigKeyRoute = createRoute({
+  method: 'get',
+  path: '/config/{key}',
+  summary: 'Get a single config value',
+  request: { params: z.object({ key: z.string() }) },
+  responses: {
+    200: {
+      description: 'Config value',
+      content: {
+        'application/json': {
+          schema: z.object({ key: z.string(), value: z.string() }),
+        },
+      },
+    },
+    404: {
+      description: 'Not found',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const putConfigRoute = createRoute({
+  method: 'put',
+  path: '/config',
+  summary: 'Set a config value',
+  request: {
+    body: { content: { 'application/json': { schema: ConfigBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Ok',
+      content: {
+        'application/json': { schema: z.object({ ok: z.boolean() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+// ---- tool config ----
+
+const getToolConfigRoute = createRoute({
+  method: 'get',
+  path: '/tool-config',
+  summary: 'Get tool config',
+  responses: {
+    200: {
+      description: 'Tool config',
+      content: { 'application/json': { schema: z.unknown() } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const putToolConfigRoute = createRoute({
+  method: 'put',
+  path: '/tool-config',
+  summary: 'Set tool config',
+  responses: {
+    200: {
+      description: 'Updated config',
+      content: {
+        'application/json': {
+          schema: z.object({ ok: z.boolean(), config: z.unknown() }),
+        },
+      },
+    },
+    400: {
+      description: 'Bad request',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+// ---- tools ----
+
+const listToolsRoute = createRoute({
+  method: 'get',
+  path: '/tools',
+  summary: 'Discover tools',
+  responses: {
+    200: {
+      description: 'Tools',
+      content: {
+        'application/json': {
+          schema: z.object({
+            tools: z.array(
+              z.object({ name: z.string(), description: z.string() }),
+            ),
+          }),
+        },
+      },
+    },
+  },
+})
+
+// ---- models ----
+
+const listModelsRoute = createRoute({
+  method: 'get',
+  path: '/models',
+  summary: 'List available models',
+  responses: {
+    200: {
+      description: 'Models',
+      content: {
+        'application/json': {
+          schema: z.object({ models: z.array(z.string()) }),
+        },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+// ---- recore config ----
+
+const recoreConfigRoute = createRoute({
+  method: 'get',
+  path: '/recore-config',
+  summary: 'Recore config',
+  responses: {
+    200: {
+      description: 'Recore config',
+      content: { 'application/json': { schema: z.unknown() } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+export const configRoutes = new OpenAPIHono<AppEnv>()
+  .openapi(listPresetsRoute, async c => {
     const { db } = c.get('deps')
     const r = await Presets.list(db)
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
-      : c.json(r.value)
+      : c.json(r.value, 200)
   })
-  .post('/presets', zValidator('json', PresetBodySchema), async c => {
+  .openapi(upsertPresetRoute, async c => {
     const { db } = c.get('deps')
     const b = c.req.valid('json')
     const r = await Presets.upsert(db, {
@@ -35,47 +262,48 @@ export const configRoutes = new Hono<AppEnv>()
     })
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
-      : c.json({ ok: true })
+      : c.json({ ok: true }, 200)
   })
-  .delete('/presets/:id', async c => {
+  .openapi(deletePresetRoute, async c => {
     const { db } = c.get('deps')
-    const r = await Presets.delete(db, c.req.param('id'))
+    const r = await Presets.delete(db, c.req.valid('param').id)
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
-      : c.json({ ok: true })
+      : c.json({ ok: true }, 200)
   })
-  .get('/config', async c => {
+  .openapi(getConfigRoute, async c => {
     const { db } = c.get('deps')
     const r = await Config.get(db, 'providers')
     // Providers live in their own table now; expose them for UI compatibility.
     const providers =
       r.isOk() && r.value !== null ? parseLoose(r.value).unwrapOr({}) : {}
-    return c.json({ providers })
+    return c.json({ providers }, 200)
   })
-  .get('/config/:key', async c => {
+  .openapi(getConfigKeyRoute, async c => {
     const { db } = c.get('deps')
-    const r = await Config.get(db, c.req.param('key'))
+    const { key } = c.req.valid('param')
+    const r = await Config.get(db, key)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     return r.value === null
       ? c.json({ ok: false, error: 'config not found' }, 404)
-      : c.json({ key: c.req.param('key'), value: r.value })
+      : c.json({ key, value: r.value }, 200)
   })
-  .put('/config', zValidator('json', ConfigBodySchema), async c => {
+  .openapi(putConfigRoute, async c => {
     const { db } = c.get('deps')
     const b = c.req.valid('json')
     const r = await Config.set(db, b.key, b.value)
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
-      : c.json({ ok: true })
+      : c.json({ ok: true }, 200)
   })
-  .get('/tool-config', async c => {
+  .openapi(getToolConfigRoute, async c => {
     const { db } = c.get('deps')
     const r = await Config.get(db, 'tool_config')
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     const value = r.value === null ? {} : parseLoose(r.value).unwrapOr({})
-    return c.json(value)
+    return c.json(value, 200)
   })
-  .put('/tool-config', async c => {
+  .openapi(putToolConfigRoute, async c => {
     const { db } = c.get('deps')
     const body = await ResultAsync.fromPromise(c.req.json(), () => null)
     if (body.isErr() || body.value === null) {
@@ -84,19 +312,22 @@ export const configRoutes = new Hono<AppEnv>()
     const r = await Config.set(db, 'tool_config', JSON.stringify(body.value))
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
-      : c.json({ ok: true, config: body.value })
+      : c.json({ ok: true, config: body.value }, 200)
   })
-  .get('/tools', async c => {
+  .openapi(listToolsRoute, async c => {
     const deps = c.get('deps')
     const tools = await discoverTools(deps.config.toolServers)
-    return c.json({
-      tools: tools.map(t => ({
-        name: t.name,
-        description: t.description,
-      })),
-    })
+    return c.json(
+      {
+        tools: tools.map(t => ({
+          name: t.name,
+          description: t.description,
+        })),
+      },
+      200,
+    )
   })
-  .get('/models', async c => {
+  .openapi(listModelsRoute, async c => {
     const { db, llm } = c.get('deps')
     const r = await Providers.list(db)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
@@ -107,9 +338,9 @@ export const configRoutes = new Hono<AppEnv>()
     }
     if (!models.includes(llm.defaultModelId()))
       models.unshift(llm.defaultModelId())
-    return c.json({ models })
+    return c.json({ models }, 200)
   })
-  .get('/recore-config', async c => {
+  .openapi(recoreConfigRoute, async c => {
     const deps = c.get('deps')
     const r = await Providers.list(deps.db)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
@@ -124,10 +355,13 @@ export const configRoutes = new Hono<AppEnv>()
         models: parse(ModelsArraySchema, p.models).unwrapOr([]),
       }
     }
-    return c.json({
-      providers,
-      cdp_url: process.env.RUCODER_CDP_URL ?? '',
-      http_proxy: process.env.RUCODER_HTTP_PROXY ?? '',
-      self_base: process.env.RUCODER_SELF_BASE ?? '',
-    })
+    return c.json(
+      {
+        providers,
+        cdp_url: process.env.RUCODER_CDP_URL ?? '',
+        http_proxy: process.env.RUCODER_HTTP_PROXY ?? '',
+        self_base: process.env.RUCODER_SELF_BASE ?? '',
+      },
+      200,
+    )
   })

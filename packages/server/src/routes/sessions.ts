@@ -1,4 +1,4 @@
-import { zValidator } from '@hono/zod-validator'
+import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   type AgentDeps,
   interruptRun,
@@ -24,9 +24,8 @@ import {
   SessionSettingsBodySchema,
   UndoBodySchema,
 } from '@rucoder-agent/schema'
-import { type Context, Hono } from 'hono'
+import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import { type AppEnv, EidDedup } from '../context.js'
 
@@ -106,15 +105,404 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
   })
 }
 
-export const sessionRoutes = new Hono<AppEnv>()
-  .get('/', async c => {
+const SessionJsonSchema = z.record(z.string(), z.unknown())
+
+const ErrorSchema = z.object({ ok: z.boolean(), error: z.string() })
+
+// ---- route definitions ----
+
+const listSessionsRoute = createRoute({
+  method: 'get',
+  path: '/sessions',
+  summary: 'List sessions',
+  responses: {
+    200: {
+      description: 'Sessions',
+      content: {
+        'application/json': {
+          schema: z.object({ sessions: z.array(z.unknown()) }),
+        },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const createSessionRoute = createRoute({
+  method: 'post',
+  path: '/sessions',
+  summary: 'Create a session',
+  request: {
+    body: {
+      content: { 'application/json': { schema: CreateSessionBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Created',
+      content: {
+        'application/json': {
+          schema: z.object({ ok: z.boolean(), session_name: z.string() }),
+        },
+      },
+    },
+    409: {
+      description: 'Exists',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const getSessionRoute = createRoute({
+  method: 'get',
+  path: '/sessions/{id}',
+  summary: 'Get a session',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Session',
+      content: {
+        'application/json': {
+          schema: z.object({ session: SessionJsonSchema }),
+        },
+      },
+    },
+    404: {
+      description: 'Not found',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const deleteSessionRoute = createRoute({
+  method: 'delete',
+  path: '/sessions/{id}',
+  summary: 'Delete a session',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Ok',
+      content: {
+        'application/json': { schema: z.object({ ok: z.boolean() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const listMessagesRoute = createRoute({
+  method: 'get',
+  path: '/sessions/{id}/messages',
+  summary: 'List messages',
+  request: {
+    params: z.object({ id: z.string() }),
+    query: z.object({
+      limit: z.string().optional(),
+      before: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'Messages',
+      content: {
+        'application/json': {
+          schema: z.object({ messages: z.array(z.unknown()) }),
+        },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const promptRoute = createRoute({
+  method: 'post',
+  path: '/sessions/{id}/prompt',
+  summary: 'Send a user prompt',
+  request: {
+    params: z.object({ id: z.string() }),
+    body: { content: { 'application/json': { schema: PromptBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Ok',
+      content: {
+        'application/json': { schema: z.object({ ok: z.boolean() }) },
+      },
+    },
+    404: {
+      description: 'Not found',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const forkRoute = createRoute({
+  method: 'post',
+  path: '/sessions/{id}/fork',
+  summary: 'Fork a session',
+  request: {
+    params: z.object({ id: z.string() }),
+    body: { content: { 'application/json': { schema: ForkBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Forked',
+      content: {
+        'application/json': {
+          schema: z.object({ ok: z.boolean(), session_name: z.string() }),
+        },
+      },
+    },
+    404: {
+      description: 'Not found',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    409: {
+      description: 'Exists',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const renameRoute = createRoute({
+  method: 'post',
+  path: '/sessions/{id}/rename',
+  summary: 'Rename a session',
+  request: {
+    params: z.object({ id: z.string() }),
+    body: { content: { 'application/json': { schema: RenameBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Renamed',
+      content: {
+        'application/json': {
+          schema: z.object({ ok: z.boolean(), session_name: z.string() }),
+        },
+      },
+    },
+    404: {
+      description: 'Not found',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    409: {
+      description: 'Exists',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const modelRoute = createRoute({
+  method: 'post',
+  path: '/sessions/{id}/model',
+  summary: 'Set session model',
+  request: {
+    params: z.object({ id: z.string() }),
+    body: { content: { 'application/json': { schema: ModelBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Model',
+      content: {
+        'application/json': { schema: z.object({ model: z.string() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const undoRoute = createRoute({
+  method: 'post',
+  path: '/sessions/{id}/undo',
+  summary: 'Undo (move tip pointer back)',
+  request: {
+    params: z.object({ id: z.string() }),
+    body: { content: { 'application/json': { schema: UndoBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Undone',
+      content: {
+        'application/json': {
+          schema: z.object({ ok: z.boolean(), undone: z.boolean() }),
+        },
+      },
+    },
+    404: {
+      description: 'Not found',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const readRoute = createRoute({
+  method: 'post',
+  path: '/sessions/{id}/read',
+  summary: 'Mark read',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Ok',
+      content: {
+        'application/json': { schema: z.object({ ok: z.boolean() }) },
+      },
+    },
+  },
+})
+
+const stateRoute = createRoute({
+  method: 'get',
+  path: '/sessions/{id}/state',
+  summary: 'Session state',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'State',
+      content: {
+        'application/json': {
+          schema: z.object({ status: z.string(), parts: z.array(z.unknown()) }),
+        },
+      },
+    },
+  },
+})
+
+const mailboxRoute = createRoute({
+  method: 'get',
+  path: '/sessions/{id}/mailbox',
+  summary: 'List mailbox entries',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Entries',
+      content: {
+        'application/json': {
+          schema: z.object({ entries: z.array(z.unknown()) }),
+        },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const changesRoute = createRoute({
+  method: 'get',
+  path: '/sessions/{id}/changes',
+  summary: 'List tool changes',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Changes',
+      content: {
+        'application/json': {
+          schema: z.object({ changes: z.array(z.unknown()) }),
+        },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const settingsRoute = createRoute({
+  method: 'patch',
+  path: '/sessions/{id}/settings',
+  summary: 'Update session settings',
+  request: {
+    params: z.object({ id: z.string() }),
+    body: {
+      content: { 'application/json': { schema: SessionSettingsBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Updated session',
+      content: {
+        'application/json': {
+          schema: z.object({ session: SessionJsonSchema }),
+        },
+      },
+    },
+    404: {
+      description: 'Not found',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const interruptRoute = createRoute({
+  method: 'post',
+  path: '/sessions/{id}/interrupt',
+  summary: 'Interrupt an in-flight run',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Interrupted',
+      content: {
+        'application/json': { schema: z.object({ interrupted: z.boolean() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
+const sessionOpenapi = new OpenAPIHono<AppEnv>()
+  .openapi(listSessionsRoute, async c => {
     const { db } = c.get('deps')
     const r = await Sessions.list(db)
     return r.isErr()
       ? err500(c, r.error)
-      : c.json({ sessions: r.value.map(sessionToJson) })
+      : c.json({ sessions: r.value.map(sessionToJson) }, 200)
   })
-  .post('/', zValidator('json', CreateSessionBodySchema), async c => {
+  .openapi(createSessionRoute, async c => {
     const { db } = c.get('deps')
     const b = c.req.valid('json')
     const exists = await Sessions.exists(db, b.name)
@@ -125,39 +513,40 @@ export const sessionRoutes = new Hono<AppEnv>()
     const name = await Sessions.create(db, b)
     return name.isErr()
       ? err500(c, name.error)
-      : c.json({ ok: true, session_name: name.value })
+      : c.json({ ok: true, session_name: name.value }, 200)
   })
-  .get('/:id', async c => {
+  .openapi(getSessionRoute, async c => {
     const { db } = c.get('deps')
-    const r = await Sessions.get(db, c.req.param('id'))
+    const r = await Sessions.get(db, c.req.valid('param').id)
     if (r.isErr()) return err500(c, r.error)
     return r.value === null
       ? c.json({ ok: false, error: 'session not found' }, 404)
-      : c.json({ session: sessionToJson(r.value) })
+      : c.json({ session: sessionToJson(r.value) }, 200)
   })
-  .delete('/:id', async c => {
+  .openapi(deleteSessionRoute, async c => {
     const { db } = c.get('deps')
-    const id = c.req.param('id')
+    const id = c.req.valid('param').id
     interruptRun(id)
     const r = await Sessions.delete(db, id)
-    return r.isErr() ? err500(c, r.error) : c.json({ ok: true })
+    return r.isErr() ? err500(c, r.error) : c.json({ ok: true }, 200)
   })
-  .get('/:id/messages', async c => {
+  .openapi(listMessagesRoute, async c => {
     const { db } = c.get('deps')
-    const sid = c.req.param('id')
-    const limit = Number.parseInt(c.req.query('limit') ?? '50', 10)
-    const before = c.req.query('before') ?? null
-    const tipRes = await Sessions.tip(db, sid)
+    const { id } = c.req.valid('param')
+    const q = c.req.valid('query')
+    const limit = Number.parseInt(q.limit ?? '50', 10)
+    const before = q.before ?? null
+    const tipRes = await Sessions.tip(db, id)
     const tipId = tipRes.isErr() ? null : tipRes.value
     const r = await Messages.chain(db, tipId, limit, before)
-    return r.isErr() ? err500(c, r.error) : c.json({ messages: r.value })
+    return r.isErr() ? err500(c, r.error) : c.json({ messages: r.value }, 200)
   })
-  .post('/:id/prompt', zValidator('json', PromptBodySchema), async c => {
+  .openapi(promptRoute, async c => {
     const deps = c.get('deps')
-    const sid = c.req.param('id')
+    const { id } = c.req.valid('param')
     const { prompt } = c.req.valid('json')
 
-    const session = await Sessions.get(deps.db, sid)
+    const session = await Sessions.get(deps.db, id)
     if (session.isErr()) return err500(c, session.error)
     if (session.value === null) {
       return c.json({ ok: false, error: 'session not found' }, 404)
@@ -165,13 +554,13 @@ export const sessionRoutes = new Hono<AppEnv>()
 
     // Persist the user message first (chained onto the tip) so the turn loop
     // never runs against a history missing the prompt.
-    const tipRes = await Sessions.tip(deps.db, sid)
+    const tipRes = await Sessions.tip(deps.db, id)
     const tipId = tipRes.isErr() ? null : tipRes.value
     const insert = await Messages.insert(deps.db, 'user', prompt, tipId)
     if (insert.isErr()) return err500(c, insert.error)
-    await Sessions.setTip(deps.db, sid, insert.value)
+    await Sessions.setTip(deps.db, id, insert.value)
 
-    const enq = await Mailbox.enqueue(deps.db, sid, 'user_prompt', {
+    const enq = await Mailbox.enqueue(deps.db, id, 'user_prompt', {
       text: prompt,
     })
     if (enq.isErr()) return err500(c, enq.error)
@@ -179,30 +568,18 @@ export const sessionRoutes = new Hono<AppEnv>()
     // Wake any replica via the durable mailbox subject. Every replica tries a
     // claim; exactly one wins and drains the mailbox (idempotent, reentrant).
     void deps.bus
-      .publishStream(mailboxSubject(sid), {
+      .publishStream(mailboxSubject(id), {
         type: 'user_prompt',
-        session_name: sid,
+        session_name: id,
       })
       .then(() => undefined)
 
-    void triggerClaim(deps, sid)
-    return c.json({ ok: true })
+    void triggerClaim(deps, id)
+    return c.json({ ok: true }, 200)
   })
-  .get('/:id/stream', sseHandler)
-  .get('/:id/events', sseHandler)
-  .get('/:id/todos', async c => {
+  .openapi(forkRoute, async c => {
     const deps = c.get('deps')
-    const url = `${deps.config.memoryUrl.replace(/\/$/, '')}/api/v1/todos?session_name=${c.req.param('id')}`
-    const res = await ResultAsync.fromPromise(fetch(url), () => null)
-    if (res.isErr() || res.value === null) {
-      return err500(c, 'memory service unreachable')
-    }
-    const body = await ResultAsync.fromPromise(res.value.json(), () => ({}))
-    return c.json(body.isOk() ? body.value : {})
-  })
-  .post('/:id/fork', zValidator('json', ForkBodySchema), async c => {
-    const deps = c.get('deps')
-    const pid = c.req.param('id')
+    const pid = c.req.valid('param').id
     const b = c.req.valid('json')
     const parent = await Sessions.get(deps.db, pid)
     if (parent.isErr()) return err500(c, parent.error)
@@ -225,15 +602,15 @@ export const sessionRoutes = new Hono<AppEnv>()
     })
     return name.isErr()
       ? err500(c, name.error)
-      : c.json({ ok: true, session_name: name.value })
+      : c.json({ ok: true, session_name: name.value }, 200)
   })
-  .post('/:id/rename', zValidator('json', RenameBodySchema), async c => {
+  .openapi(renameRoute, async c => {
     const deps = c.get('deps')
-    const oldName = c.req.param('id')
+    const oldName = c.req.valid('param').id
     const b = c.req.valid('json')
 
     if (b.name === oldName) {
-      return c.json({ ok: true, session_name: oldName })
+      return c.json({ ok: true, session_name: oldName }, 200)
     }
     const parent = await Sessions.get(deps.db, oldName)
     if (parent.isErr()) return err500(c, parent.error)
@@ -258,22 +635,18 @@ export const sessionRoutes = new Hono<AppEnv>()
     if (created.isErr()) return err500(c, created.error)
     const removed = await Sessions.delete(deps.db, oldName)
     if (removed.isErr()) return err500(c, removed.error)
-    return c.json({ ok: true, session_name: b.name })
+    return c.json({ ok: true, session_name: b.name }, 200)
   })
-  .post('/:id/model', zValidator('json', ModelBodySchema), async c => {
+  .openapi(modelRoute, async c => {
     const { db } = c.get('deps')
-    const r = await Sessions.setModel(
-      db,
-      c.req.param('id'),
-      c.req.valid('json').model,
-    )
-    return r.isErr()
-      ? err500(c, r.error)
-      : c.json({ model: c.req.valid('json').model })
+    const { id } = c.req.valid('param')
+    const { model } = c.req.valid('json')
+    const r = await Sessions.setModel(db, id, model)
+    return r.isErr() ? err500(c, r.error) : c.json({ model }, 200)
   })
-  .post('/:id/undo', zValidator('json', UndoBodySchema), async c => {
+  .openapi(undoRoute, async c => {
     const deps = c.get('deps')
-    const sid = c.req.param('id')
+    const sid = c.req.valid('param').id
     const { message_id } = c.req.valid('json')
 
     const session = await Sessions.get(deps.db, sid)
@@ -284,29 +657,29 @@ export const sessionRoutes = new Hono<AppEnv>()
 
     const tip = s.tip_id
     if (tip === null || tip === '') {
-      return c.json({ ok: false, undone: false })
+      return c.json({ ok: false, undone: false }, 200)
     }
     const targetId = message_id ?? tip
     const target = await Messages.get(deps.db, targetId)
     if (target.isErr()) return err500(c, target.error)
-    if (target.value === null) return c.json({ ok: false, undone: false })
+    if (target.value === null) return c.json({ ok: false, undone: false }, 200)
 
     // undo == move the tip pointer back; messages are append-only and never
     // physically deleted (COW). At the chain head this becomes a no-op.
     await Sessions.setTip(deps.db, sid, target.value.prev_id)
 
-    return c.json({ ok: true, undone: true })
+    return c.json({ ok: true, undone: true }, 200)
   })
-  .post('/:id/read', async c => c.json({ ok: true }))
-  .get('/:id/state', async c => c.json({ status: 'idle', parts: [] }))
-  .get('/:id/mailbox', async c => {
+  .openapi(readRoute, async c => c.json({ ok: true }, 200))
+  .openapi(stateRoute, async c => c.json({ status: 'idle', parts: [] }, 200))
+  .openapi(mailboxRoute, async c => {
     const { db } = c.get('deps')
-    const r = await Mailbox.list(db, c.req.param('id'))
-    return r.isErr() ? err500(c, r.error) : c.json({ entries: r.value })
+    const r = await Mailbox.list(db, c.req.valid('param').id)
+    return r.isErr() ? err500(c, r.error) : c.json({ entries: r.value }, 200)
   })
-  .get('/:id/changes', async c => {
+  .openapi(changesRoute, async c => {
     const { db } = c.get('deps')
-    const sid = c.req.param('id')
+    const sid = c.req.valid('param').id
     const tipRes = await Sessions.tip(db, sid)
     const tipId = tipRes.isErr() ? null : tipRes.value
     const chain = await Messages.chain(db, tipId, 100_000, null)
@@ -329,30 +702,26 @@ export const sessionRoutes = new Hono<AppEnv>()
         seq: p.seq,
       })
     }
-    return c.json({ changes })
+    return c.json({ changes }, 200)
   })
-  .patch(
-    '/:id/settings',
-    zValidator('json', SessionSettingsBodySchema),
-    async c => {
-      const { db } = c.get('deps')
-      const sid = c.req.param('id')
-      const b = c.req.valid('json')
-      const r = await Sessions.updateSettings(db, sid, {
-        model: b.model,
-        preset: b.preset,
-      })
-      if (r.isErr()) return err500(c, r.error)
-      const s = await Sessions.get(db, sid)
-      if (s.isErr()) return err500(c, s.error)
-      return s.value === null
-        ? c.json({ ok: false, error: 'session not found' }, 404)
-        : c.json({ session: sessionToJson(s.value) })
-    },
-  )
-  .post('/:id/interrupt', async c => {
+  .openapi(settingsRoute, async c => {
+    const { db } = c.get('deps')
+    const sid = c.req.valid('param').id
+    const b = c.req.valid('json')
+    const r = await Sessions.updateSettings(db, sid, {
+      model: b.model,
+      preset: b.preset,
+    })
+    if (r.isErr()) return err500(c, r.error)
+    const s = await Sessions.get(db, sid)
+    if (s.isErr()) return err500(c, s.error)
+    return s.value === null
+      ? c.json({ ok: false, error: 'session not found' }, 404)
+      : c.json({ session: sessionToJson(s.value) }, 200)
+  })
+  .openapi(interruptRoute, async c => {
     const deps = c.get('deps')
-    const sid = c.req.param('id')
+    const sid = c.req.valid('param').id
     // 1. Local mid-stream abort (this replica).
     interruptRun(sid)
     // 2. Durable: enqueue + wake publish so the replica holding the session
@@ -366,5 +735,11 @@ export const sessionRoutes = new Hono<AppEnv>()
       })
       .then(() => undefined)
     void triggerClaim(deps, sid)
-    return c.json({ interrupted: true })
+    return c.json({ interrupted: true }, 200)
   })
+
+// SSE endpoints return a raw streaming Response, so they are registered as
+// plain GET routes (the `.openapi()` path cannot express a stream response).
+export const sessionRoutes = $(sessionOpenapi)
+  .get('/sessions/:id/stream', sseHandler)
+  .get('/sessions/:id/events', sseHandler)

@@ -85,7 +85,8 @@ export const api = {
 
   listMessages: (sid: string) =>
     request(
-      () => client.sessions[':id'].messages.$get({ param: { id: sid } }),
+      () =>
+        client.sessions[':id'].messages.$get({ param: { id: sid }, query: {} }),
       z.object({
         messages: z.array(
           z.object({
