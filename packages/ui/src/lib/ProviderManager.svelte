@@ -14,11 +14,14 @@
   let apiType = $state('openai-compatible')
   let baseUrl = $state('')
   let apiKey = $state('')
-  let modelsText = $state('')
+  let selectedModels: string[] = $state([])
   let testResult = $state('')
 
   const list = $derived(Object.values(providers))
   const catalogList = $derived(Object.values(catalog))
+  const modelChoices = $derived(
+    Object.keys(catalogList.find(c => c.id === pid)?.models ?? {}),
+  )
 
   function refresh() {
     void api.listProviders().match(
@@ -41,10 +44,31 @@
 
   function prefill(item: CatalogProvider) {
     pid = item.id ?? ''
-    baseUrl = item.api ?? ''
-    apiType = item.npm === '@ai-sdk/anthropic' ? 'anthropic' : 'openai-compatible'
-    modelsText = Object.keys(item.models).join(', ')
+    baseUrl = item.api ?? defaultBaseUrl(item.npm)
+    apiType = apiTypeFromNpm(item.npm)
+    selectedModels = Object.keys(item.models)
     apiKey = ''
+  }
+
+  function toggleModel(model: string) {
+    selectedModels = selectedModels.includes(model)
+      ? selectedModels.filter(m => m !== model)
+      : [...selectedModels, model]
+  }
+
+  function apiTypeFromNpm(npm: string): string {
+    if (npm === '@ai-sdk/anthropic') return 'anthropic'
+    if (npm === '@ai-sdk/openai') return 'openai'
+    if (npm === '@ai-sdk/deepseek') return 'deepseek'
+    if (npm === '@ai-sdk/google') return 'google'
+    return 'openai-compatible'
+  }
+
+  function defaultBaseUrl(npm: string): string {
+    if (npm === '@ai-sdk/anthropic') return 'https://api.anthropic.com/v1'
+    if (npm === '@ai-sdk/openai') return 'https://api.openai.com/v1'
+    if (npm === '@ai-sdk/google') return 'https://generativelanguage.googleapis.com/v1beta'
+    return ''
   }
 
   function register() {
@@ -56,17 +80,14 @@
         api_type: apiType,
         base_url: baseUrl.trim(),
         api_key: apiKey,
-        models: modelsText
-          .split(',')
-          .map(s => s.trim())
-          .filter(Boolean),
+        models: selectedModels,
       })
       .match(
         () => {
           pid = ''
           baseUrl = ''
           apiKey = ''
-          modelsText = ''
+          selectedModels = []
           refresh()
         },
         e => {
@@ -159,8 +180,7 @@
           <span class="inline-flex items-center gap-1">
             <RefreshCw class="size-3" /> prefill from catalog
           </span>
-        </button>
-        <input bind:value={pid} placeholder="provider_id" />
+        </button>        <input bind:value={pid} placeholder="provider_id" />
         <select bind:value={apiType}>
           <option value="openai-compatible">openai-compatible</option>
           <option value="openai">openai</option>
@@ -174,7 +194,19 @@
           type="password"
           placeholder="api_key (optional)"
         />
-        <input bind:value={modelsText} placeholder="models (comma-separated)" />
+        {#if catalogList.length > 0}
+          <div class="text-xs text-muted font-medium">Models</div>
+          <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+            {#each modelChoices as m (m)}
+              <button
+                class="text-xs px-2 py-1 rounded border {selectedModels.includes(m) ? 'bg-accent/30 border-accent' : 'bg-panel2 border-border'}"
+                onclick={() => toggleModel(m)}
+              >
+                {m}
+              </button>
+            {/each}
+          </div>
+        {/if}
         <div class="flex gap-2">
           <button
             class="bg-accent text-accent-fg rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50 flex-1"
