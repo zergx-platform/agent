@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module'
 import { serve } from '@hono/node-server'
 import {
   type AgentDeps,
@@ -29,11 +28,16 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
+// `node:sea`'s `getRawAsset` is only available inside a single-executable
+// application. We load it lazily via the CJS `require` (the whole server is
+// bundled to CJS for SEA) so a normal `node` run does not crash at import.
 function getSeaAsset(key: string): ArrayBuffer | null {
   try {
-    const require = createRequire(import.meta.url)
-    const raw = require('node:sea').getRawAsset(key) as ArrayBuffer
-    return raw ?? null
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sea = require('node:sea') as {
+      getRawAsset: (k: string) => ArrayBuffer | undefined
+    }
+    return sea.getRawAsset(key) ?? null
   } catch {
     return null
   }

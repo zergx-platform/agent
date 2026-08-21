@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api, type Provider } from '$lib/api'
+  import type { CatalogProvider } from '@rucoder-agent/schema'
   import { X, Plus, Trash2, Check, RefreshCw } from '@lucide/svelte'
 
   let { onclose }: { onclose: () => void } = $props()
 
   let providers: Record<string, Provider> = $state({})
-  let catalog: Record<string, any> = $state({})
+  let catalog: Record<string, CatalogProvider> = $state({})
   let error = $state('')
 
   let pid = $state('')
@@ -15,7 +16,6 @@
   let apiKey = $state('')
   let modelsText = $state('')
   let testResult = $state('')
-  let testUrl = $state('')
 
   const list = $derived(Object.values(providers))
   const catalogList = $derived(Object.values(catalog))
@@ -31,17 +31,19 @@
     )
     void api.catalogProviders().match(
       r => {
-        catalog = r as Record<string, any>
+        catalog = r
       },
-      () => {},
+      () => {
+        catalog = {}
+      },
     )
   }
 
-  function prefill(item: any) {
+  function prefill(item: CatalogProvider) {
     pid = item.id ?? ''
     baseUrl = item.api ?? ''
     apiType = item.npm === '@ai-sdk/anthropic' ? 'anthropic' : 'openai-compatible'
-    modelsText = item.models ? Object.keys(item.models).join(', ') : ''
+    modelsText = Object.keys(item.models).join(', ')
     apiKey = ''
   }
 

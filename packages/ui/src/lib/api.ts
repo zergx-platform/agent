@@ -1,18 +1,21 @@
 import type {
   AppRoutes,
   CreateSessionBody,
-  ProviderJson,
   SessionJson,
 } from '@rucoder-agent/schema'
-import { SessionRowSchema } from '@rucoder-agent/schema'
+import {
+  CatalogProvidersSchema,
+  ProviderJsonSchema,
+  SessionRowSchema,
+} from '@rucoder-agent/schema'
 import { hc } from 'hono/client'
 import { err, ok, type Result, ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 
 /**
  * Type-safe Hono RPC client. Paths and request bodies are fully inferred from
- * `AppRoutes` (declared in @rucoder-agent/schema), so the UI never imports the
- * server package and all responses are validated with zod before use.
+ * `AppRoutes` (declared in @rucoder-agent/schema); every response body is
+ * validated at runtime against the shared zod schemas (single source of truth).
  *
  * Every network call returns a `neverthrow` Result — no try/catch/throw.
  */
@@ -53,7 +56,9 @@ function request<T>(
     const res = await op()
     const body: unknown = await parseBody(res)
     if (!res.ok) {
-      const msg = (body as { error?: string } | null)?.error
+      const msg = z
+        .object({ error: z.string().optional() })
+        .parse(body ?? {}).error
       return err<T, string>(msg ?? `${label} failed (HTTP ${res.status})`)
     }
     return decode(schema, body, label)
@@ -120,9 +125,9 @@ export const api = {
   listProviders: () =>
     request(
       () => client.providers.$get(),
-      z.object({ providers: z.record(z.string(), z.unknown()) }),
+      z.object({ providers: z.record(z.string(), ProviderJsonSchema) }),
       'list providers',
-    ).map(r => r.providers as Record<string, ProviderJson>),
+    ).map(r => r.providers),
 
   registerProvider: (p: {
     provider_id: string
@@ -258,7 +263,7 @@ export const api = {
   catalogProviders: () =>
     request(
       () => client.providers.catalog.$get(),
-      z.object({ catalog: z.record(z.string(), z.unknown()) }),
+      z.object({ catalog: CatalogProvidersSchema }),
       'catalog providers',
     ).map(r => r.catalog),
 }

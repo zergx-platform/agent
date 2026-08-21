@@ -15,7 +15,7 @@ COPY packages packages
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts \
     && npm rebuild esbuild \
-    && npm run build:sea
+    && npm run build
 
 # The binary embeds Node, all JS dependencies and the SPA; the runtime stage
 # needs only libc + CA certs.

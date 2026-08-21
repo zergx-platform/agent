@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api, type Session } from '$lib/api'
-  import { parseLoose } from '@rucoder-agent/schema'
+  import { parseLoose, SSEEnvelopeSchema, SseParamsSchema } from '@rucoder-agent/schema'
   import { markdown } from '$lib/markdown'
   import { Send, Square, Settings2, Undo2, GitFork, Mailbox, FilePenLine } from '@lucide/svelte'
   import SettingsPanel from '$lib/SettingsPanel.svelte'
@@ -39,25 +39,24 @@
     stopStream()
     es = new EventSource(api.sessionsStreamUrl(active.name))
     es.onmessage = ev => {
-      parseLoose(ev.data).match(
-        value => {
-          const data = value as { event?: string; params?: Record<string, unknown> }
-          const p = data.params ?? {}
-          if (data.event === 'text-delta' && typeof p.text === 'string') {
-            assistantBuf += p.text
-          } else if (data.event === 'turn-complete') {
-            flushAssistant()
-            streaming = false
-            onrefresh()
-            stopStream()
-          } else if (data.event === 'error') {
-            error = typeof p.message === 'string' ? p.message : 'turn error'
-            streaming = false
-            stopStream()
-          }
-        },
-        () => {},
-      )
+      const parsed = SSEEnvelopeSchema.safeParse(parseLoose(ev.data).unwrapOr(null))
+      if (!parsed.success) return
+      const data = parsed.data
+      const p = data.params ?? {}
+      if (data.event === 'text-delta') {
+        const text = SseParamsSchema.safeParse(p)
+        if (text.success && 'text' in text.data) assistantBuf += text.data.text
+      } else if (data.event === 'turn-complete') {
+        flushAssistant()
+        streaming = false
+        onrefresh()
+        stopStream()
+      } else if (data.event === 'error') {
+        const m = SseParamsSchema.safeParse(p)
+        error = m.success && 'message' in m.data ? m.data.message : 'turn error'
+        streaming = false
+        stopStream()
+      }
     }
     es.onerror = () => stopStream()
   }

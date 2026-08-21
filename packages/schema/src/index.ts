@@ -181,12 +181,23 @@ export const SSE_EVENT_NAMES = [
 ] as const
 export type SSEEventName = (typeof SSE_EVENT_NAMES)[number]
 
-export interface SSEEnvelope {
-  event: SSEEventName | string
-  params: unknown
-  /** Unique id injected by the publisher for replay/live dedup. */
-  eid: string
-}
+/** Parsed SSE delta params, discriminated by event type for the UI. */
+export const SseTextDeltaParamsSchema = z.object({ text: z.string() })
+export const SseErrorParamsSchema = z.object({ message: z.string() })
+export const SseParamsSchema = z.union([
+  z.object({ type: z.string() }),
+  z.object({ text: z.string() }),
+  z.object({ content: z.string() }),
+  z.object({ message: z.string() }),
+  z.object({ reason: z.string() }),
+  z.object({ tool_use_id: z.string(), content: z.string() }),
+])
+export const SSEEnvelopeSchema = z.object({
+  event: z.string(),
+  params: z.record(z.string(), z.unknown()).optional(),
+  eid: z.string().optional(),
+})
+export type SSEEnvelope = z.infer<typeof SSEEnvelopeSchema>
 
 // ---- API error envelope ----------------
 
@@ -204,14 +215,32 @@ export interface ApiErrorBody {
 
 export type SessionJson = SessionRow & { base_image: null; unread: number }
 
-export interface ProviderJson {
-  provider_id: string
-  api_type: string
-  base_url: string
-  api_key: string
-  headers: Record<string, unknown>
-  models: string[]
-}
+export const ProviderJsonSchema = z.object({
+  provider_id: z.string(),
+  api_type: z.string(),
+  base_url: z.string(),
+  api_key: z.string(),
+  headers: z.record(z.string(), z.string()),
+  models: z.array(z.string()),
+})
+export type ProviderJson = z.infer<typeof ProviderJsonSchema>
+
+/** A single provider entry from the models.dev catalog (prefill hint). */
+export const CatalogProviderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  api: z.string().optional(),
+  npm: z.string(),
+  env: z.array(z.string()),
+  models: z.record(z.string(), z.unknown()),
+})
+export type CatalogProvider = z.infer<typeof CatalogProviderSchema>
+
+export const CatalogProvidersSchema = z.record(
+  z.string(),
+  CatalogProviderSchema,
+)
+export type CatalogProviders = z.infer<typeof CatalogProvidersSchema>
 
 export interface AppRoutes {
   sessions: {
@@ -284,7 +313,7 @@ export interface AppRoutes {
       provider_id: string
     }>
     catalog: {
-      $get: () => Promise<{ catalog: Record<string, unknown> }>
+      $get: () => Promise<{ catalog: CatalogProviders }>
     }
     test: {
       $post: (input: {
