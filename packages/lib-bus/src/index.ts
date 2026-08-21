@@ -1,0 +1,187 @@
+import {
+  connect,
+  DeliverPolicy,
+  type JetStreamClient,
+  type NatsConnection,
+  type Sub,
+  type Subscription,
+} from 'nats'
+import { ResultAsync } from 'neverthrow'
+
+// Stream / subject topology — must stay byte-compatible with rucoder-sdk-bus
+// (the Rust side) so both agent replicas interoperate on the same cluster.
+
+export const STREAM_MAILBOX = 'RCODER_MAILBOX'
+export const STREAM_SSE = 'RCODER_SSE'
+export const STREAM_NOTIFY = 'RCODER_NOTIFY'
+export const STREAM_TOOL_LOG = 'RCODER_TOOL_LOG'
+export const BUCKET_TOOL = 'RCODER_TOOL'
+
+export const mailboxSubject = (sid: string) => `mailbox.session.${sid}`
+export const sseSubject = (sid: string) => `sse.session.${sid}`
+export const toolCallSubject = (name: string) => `tool.call.${name}`
+export const toolResultSubject = (callId: string) => `tool.result.${callId}`
+
+export interface ToolCallEnvelope {
+  call_id: string
+  arguments: Record<string, unknown>
+}
+
+export interface ToolResultEnvelope {
+  call_id: string
+  tool: string
+  content: string
+  content_object?: string
+  result?: unknown
+}
+
+const STREAMS: Array<{ name: string; subjects: string[] }> = [
+  { name: STREAM_MAILBOX, subjects: ['mailbox.session.>'] },
+  { name: STREAM_SSE, subjects: ['sse.session.>'] },
+  { name: STREAM_NOTIFY, subjects: ['notify.>'] },
+  { name: STREAM_TOOL_LOG, subjects: ['tool.log.>'] },
+]
+
+const DAY_NS = 24 * 3600 * 1_000_000_000
+
+export class Bus {
+  constructor(
+    private readonly nc: NatsConnection,
+    private readonly js: JetStreamClient,
+  ) {}
+
+  /** Core (non-durable) publish. */
+  publish(subject: string, payload: unknown): ResultAsync<void, string> {
+    return ResultAsync.fromPromise(
+      Promise.resolve(
+        this.nc.publish(subject, Buffer.from(JSON.stringify(payload))),
+      ),
+      e => `publish ${subject}: ${String(e)}`,
+    )
+  }
+
+  /** Durable JetStream publish (SSE events, mailbox wake signals). */
+  publishStream(subject: string, payload: unknown): ResultAsync<void, string> {
+    return ResultAsync.fromPromise(
+      this.js
+        .publish(subject, Buffer.from(JSON.stringify(payload)))
+        .then(() => undefined),
+      e => `stream publish ${subject}: ${String(e)}`,
+    )
+  }
+
+  /** Core subscribe (live events / tool results). */
+  subscribe(subject: string): ResultAsync<Subscription, string> {
+    return ResultAsync.fromPromise(
+      Promise.resolve(this.nc.subscribe(subject)),
+      e => `subscribe ${subject}: ${String(e)}`,
+    )
+  }
+
+  /**
+   * Collect all retained messages on a durable subject via repeated
+   * ephemeral ordered-consumer fetches until a batch comes back empty.
+   */
+  replayAll(stream: string, subject: string): ResultAsync<unknown[], string> {
+    return ResultAsync.fromPromise(
+      (async () => {
+        const out: unknown[] = []
+        for (;;) {
+          const consumer = await this.js.consumers.get(stream, {
+            filterSubjects: subject,
+            deliver_policy: DeliverPolicy.All,
+          })
+          const iter = await consumer.fetch({
+            expires: 1000,
+            max_messages: 500,
+          })
+          let got = 0
+          for await (const m of iter) {
+            got++
+            try {
+              out.push(JSON.parse(Buffer.from(m.data).toString('utf8')))
+            } catch {
+              // skip malformed
+            }
+          }
+          await iter.close()
+          await consumer.delete()
+          if (got === 0) break
+        }
+        return out
+      })(),
+      e => `replay ${stream}/${subject}: ${String(e)}`,
+    )
+  }
+
+  /** Fetch a large tool-result blob from the shared object store. */
+  getObject(name: string): ResultAsync<Buffer, string> {
+    return ResultAsync.fromPromise(
+      (async () => {
+        const os = await this.js.views.os(BUCKET_TOOL)
+        const view = await os.get(name)
+        if (view === null) throw new Error(`object not found: ${name}`)
+        const chunks: Buffer[] = []
+        const reader = (
+          view as { data: ReadableStream<Uint8Array> }
+        ).data.getReader()
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          chunks.push(Buffer.from(value))
+        }
+        return Buffer.concat(chunks)
+      })(),
+      e => `get object ${name}: ${String(e)}`,
+    )
+  }
+
+  close(): void {
+    void this.nc.close()
+  }
+}
+
+export function connectBus(url: string): ResultAsync<Bus, string> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const nc = await connect({ servers: url })
+      const js = nc.jetstream()
+      const jsm = await nc.jetstreamManager()
+      for (const s of STREAMS) {
+        try {
+          await jsm.streams.info(s.name)
+        } catch {
+          await jsm.streams.add({
+            name: s.name,
+            subjects: s.subjects,
+            max_age: DAY_NS,
+          })
+        }
+      }
+      try {
+        await js.views.os(BUCKET_TOOL)
+      } catch {
+        await js.views.os({
+          bucket: BUCKET_TOOL,
+          description: 'rucoder tool results',
+          ttl: DAY_NS,
+        } as never)
+      }
+      return new Bus(nc, js)
+    })(),
+    e => `nats connect: ${String(e)}`,
+  )
+}
+
+/** Adapt a NATS subscription to an async iterator of parsed JSON values. */
+export async function* subscriptionToIterator(
+  sub: Sub<import('nats').Msg>,
+): AsyncGenerator<unknown, void, unknown> {
+  for await (const m of sub) {
+    try {
+      yield JSON.parse(Buffer.from(m.data).toString('utf8'))
+    } catch {
+      // ignore malformed
+    }
+  }
+}

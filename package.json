@@ -1,0 +1,24 @@
+{
+  "name": "rucoder-agent-ts",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=@rucoder-agent/schema && npm run build --workspace=@rucoder-agent/lib-config && npm run build --workspace=@rucoder-agent/lib-db && npm run build --workspace=@rucoder-agent/lib-bus && npm run build --workspace=@rucoder-agent/lib-llm && npm run build --workspace=@rucoder-agent/lib-agent && npm run build --workspace=@rucoder-agent/server",
+    "check": "biome check .",
+    "check:fix": "biome check --fix .",
+    "dev": "tsx watch packages/server/src/index.ts",
+    "dev:server": "tsx watch packages/server/src/index.ts",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "start": "node packages/server/dist/index.js",
+    "test": "npm test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.9",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}

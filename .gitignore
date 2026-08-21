@@ -1,0 +1,23 @@
+node_modules/
+dist/
+target/
+.env
+*.db
+*.redb
+/tmp/
+
+# build artifacts
+*.map
+*.tsbuildinfo
+
+# core dumps
+core
+core.*
+
+# logs
+*.log
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/

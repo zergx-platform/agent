@@ -1,0 +1,34 @@
+{
+  "name": "@rucoder-agent/server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --emitDeclarationOnly && node ../../scripts/build-esbuild.mjs",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@hono/zod-validator": "^0.9.0",
+    "@rucoder-agent/lib-agent": "*",
+    "@rucoder-agent/lib-bus": "*",
+    "@rucoder-agent/lib-config": "*",
+    "@rucoder-agent/lib-db": "*",
+    "@rucoder-agent/lib-llm": "*",
+    "@rucoder-agent/schema": "*",
+    "hono": "^4.13.3",
+    "neverthrow": "^8.2.0",
+    "pino": "^10.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}

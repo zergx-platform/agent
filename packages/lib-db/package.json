@@ -1,0 +1,27 @@
+{
+  "name": "@rucoder-agent/lib-db",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*"
+  },
+  "scripts": {
+    "build": "tsc --emitDeclarationOnly && node ../../scripts/build-esbuild.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@rucoder-agent/schema": "*",
+    "drizzle-orm": "^1.0.0-rc.4",
+    "neverthrow": "^8.2.0",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
