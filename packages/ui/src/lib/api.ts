@@ -253,9 +253,13 @@ export const api = {
       'rename',
     ),
 
-  undo: (sid: string) =>
+  undo: (sid: string, messageId?: string) =>
     request(
-      () => client.sessions[':id'].undo.$post({}, { param: { id: sid } }),
+      () =>
+        client.sessions[':id'].undo.$post(
+          messageId ? { json: { message_id: messageId } } : { json: {} },
+          { param: { id: sid } },
+        ),
       z.object({ ok: z.boolean(), undone: z.boolean() }),
       'undo',
     ),

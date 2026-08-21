@@ -3,8 +3,7 @@
   import { api, type Session } from '$lib/api'
   import { parseLoose, SSEEnvelopeSchema, SseParamsSchema } from '@rucoder-agent/schema'
   import { markdown } from '$lib/markdown'
-  import { Send, Square, Settings2, Undo2, GitFork, Mailbox, FilePenLine } from '@lucide/svelte'
-  import SettingsPanel from '$lib/SettingsPanel.svelte'
+  import { Send, Square, GitFork, Mailbox, FilePenLine, ChevronDown, Undo2 } from '@lucide/svelte'
   import MailboxPanel from '$lib/MailboxPanel.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
@@ -19,10 +18,13 @@
   let streaming = $state(false)
   let assistantBuf = $state('')
   let error = $state('')
-  let showSettings = $state(false)
   let showMailbox = $state(false)
   let showRename = $state(false)
   let renameInput = $state('')
+  let models: string[] = $state([])
+  let presets: { id: string }[] = $state([])
+  let showModelPicker = $state(false)
+  let showPresetPicker = $state(false)
 
   let es: EventSource | null = null
 
@@ -36,6 +38,24 @@
       e => {
         error = e
       },
+    )
+  }
+
+  function loadModels() {
+    void api.listModels().match(
+      m => {
+        models = m
+      },
+      () => {},
+    )
+  }
+
+  function loadPresets() {
+    void api.listPresets().match(
+      p => {
+        presets = p
+      },
+      () => {},
     )
   }
 
@@ -111,10 +131,34 @@
     )
   }
 
-  function undo() {
-    void api.undo(active.name).match(
+  function undo(messageId?: string) {
+    void api.undo(active.name, messageId).match(
       r => {
         if (r.undone) loadHistory()
+      },
+      e => {
+        error = e
+      },
+    )
+  }
+
+  function switchModel(modelId: string) {
+    void api.setSessionModel(active.name, modelId).match(
+      () => {
+        showModelPicker = false
+        onrefresh()
+      },
+      e => {
+        error = e
+      },
+    )
+  }
+
+  function switchPreset(presetId: string) {
+    void api.updateSettings(active.name, { preset: presetId }).match(
+      () => {
+        showPresetPicker = false
+        onrefresh()
       },
       e => {
         error = e
@@ -157,6 +201,8 @@
 
   onMount(() => {
     loadHistory()
+    loadModels()
+    loadPresets()
     return () => stopStream()
   })
 
@@ -181,15 +227,6 @@
     <Button
       variant="ghost"
       size="icon"
-      aria-label="Undo"
-      title="Undo"
-      onclick={undo}
-    >
-      <Undo2 class="size-4" />
-    </Button>
-    <Button
-      variant="ghost"
-      size="icon"
       aria-label="Fork"
       title="Fork"
       onclick={fork}
@@ -208,22 +245,13 @@
     >
       <FilePenLine class="size-4" />
     </Button>
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label="Settings"
-      title="Settings"
-      onclick={() => (showSettings = true)}
-    >
-      <Settings2 class="size-4" />
-    </Button>
   </header>
 
   <div class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4" use:scrollToBottom={messages.length + (assistantBuf.length > 0 ? 1 : 0)}>
     {#each messages as m (m.id)}
-      <div class="flex {m.role === 'user' ? 'justify-end' : 'justify-start'}">
+      <div class="flex flex-col {m.role === 'user' ? 'items-end' : 'items-start'}">
         <div
-          class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap {m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}"
+          class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap border {m.role === 'user' ? 'bg-primary/10 border-border' : 'bg-muted border'}"
         >
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
           {#if m.role === 'assistant'}
@@ -232,6 +260,15 @@
             {m.content}
           {/if}
         </div>
+        <Button
+          variant="ghost"
+          class="h-auto w-auto p-1 mt-0.5 text-muted-foreground hover:text-foreground"
+          aria-label="Undo"
+          title="Undo"
+          onclick={() => undo(m.id)}
+        >
+          <Undo2 class="size-3.5" />
+        </Button>
       </div>
     {/each}
 
@@ -249,9 +286,6 @@
   </div>
 
   <footer class="shrink-0 p-3 border-t border-border">
-    <div class="mb-2">
-      <SettingsPanel {active} onrefresh={onrefresh} />
-    </div>
     {#if error}
       <div class="text-destructive text-xs mb-2">{error}</div>
     {/if}
@@ -283,6 +317,74 @@
           <Send class="size-4" />
         </Button>
       {/if}
+    </div>
+
+    <div class="flex items-center gap-2 mt-2 text-xs">
+      <div class="relative">
+        <button
+          class="flex items-center gap-1 px-2 py-0.5 rounded border border-input hover:bg-accent/40 transition-colors"
+          onclick={() => (showModelPicker = !showModelPicker)}
+        >
+          <span class="font-medium truncate max-w-[180px]">{active.model || 'model'}</span>
+          <ChevronDown class="size-3" />
+        </button>
+        {#if showModelPicker}
+          <div
+            class="absolute bottom-full left-0 mb-1 w-64 rounded-md border bg-popover shadow-md z-50 max-h-48 overflow-auto"
+            role="listbox"
+            tabindex="-1"
+            aria-label="Model picker"
+          >
+            <button
+              class="w-full text-left px-3 py-1.5 text-xs hover:bg-accent {active.model ? '' : 'bg-accent/60 font-medium'}"
+              onclick={() => switchModel('')}
+            >
+              default
+            </button>
+            {#each models as m (m)}
+              <button
+                class="w-full text-left px-3 py-1.5 text-xs hover:bg-accent {m === active.model ? 'bg-accent/60 font-medium' : ''}"
+                onclick={() => switchModel(m)}
+              >
+                <span class="truncate">{m}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+
+      <div class="relative">
+        <button
+          class="flex items-center gap-1 px-2 py-0.5 rounded border border-input hover:bg-accent/40 transition-colors"
+          onclick={() => (showPresetPicker = !showPresetPicker)}
+        >
+          <span class="font-medium">{active.preset || 'preset'}</span>
+          <ChevronDown class="size-3" />
+        </button>
+        {#if showPresetPicker}
+          <div
+            class="absolute bottom-full left-0 mb-1 w-48 rounded-md border bg-popover shadow-md z-50 max-h-48 overflow-auto"
+            role="listbox"
+            tabindex="-1"
+            aria-label="Preset picker"
+          >
+            <button
+              class="w-full text-left px-3 py-1.5 text-xs hover:bg-accent {active.preset ? '' : 'bg-accent/60 font-medium'}"
+              onclick={() => switchPreset('')}
+            >
+              default
+            </button>
+            {#each presets as p (p.id)}
+              <button
+                class="w-full text-left px-3 py-1.5 text-xs hover:bg-accent {p.id === active.preset ? 'bg-accent/60 font-medium' : ''}"
+                onclick={() => switchPreset(p.id)}
+              >
+                {p.id}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     </div>
   </footer>
 </div>
