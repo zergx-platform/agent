@@ -1,9 +1,22 @@
 import type { MailboxRow } from '@rucoder-agent/schema'
 import { sql as dsql, eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
+import { z } from 'zod'
 import type { Db } from './db-client.js'
 import { nowStr, q, rowsOf, uuid } from './db-client.js'
 import { mailbox } from './db-schema.js'
+
+const DrainedMailboxRowSchema = z.object({
+  id: z.string(),
+  session_name: z.string(),
+  msg_type: z.string(),
+  payload: z.string(),
+  effective_at: z.string().nullable().optional(),
+  status: z.string(),
+  created_at: z.string(),
+  consumed_at: z.string().nullable().optional(),
+  seq: z.number().nullable().optional(),
+})
 
 const toRow = (r: typeof mailbox.$inferSelect): MailboxRow => ({
   id: r.id,
@@ -90,16 +103,19 @@ export const Mailbox = {
             const rows = rowsOf(res)
             const r = rows[0]
             if (r === undefined) return null
+            const parsed = DrainedMailboxRowSchema.safeParse(r)
+            if (!parsed.success) return null
+            const d = parsed.data
             return {
-              id: String(r.id),
-              session_name: String(r.session_name),
-              msg_type: String(r.msg_type),
-              payload: String(r.payload),
-              effective_at: (r.effective_at as string | null) ?? null,
-              status: String(r.status),
-              created_at: String(r.created_at),
-              consumed_at: (r.consumed_at as string | null) ?? null,
-              seq: (r.seq as number | null) ?? null,
+              id: d.id,
+              session_name: d.session_name,
+              msg_type: d.msg_type,
+              payload: d.payload,
+              effective_at: d.effective_at ?? null,
+              status: d.status,
+              created_at: d.created_at,
+              consumed_at: d.consumed_at ?? null,
+              seq: d.seq ?? null,
             } satisfies MailboxRow
           }),
       'drain mailbox one',

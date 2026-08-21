@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { ResultAsync } from 'neverthrow'
 import postgres, { type Sql } from 'postgres'
+import { z } from 'zod'
 import { parseLoose } from './json.js'
 
 export type Db = ReturnType<typeof drizzle>
@@ -135,10 +136,20 @@ export function uuid(): string {
 }
 
 /** Normalize a raw drizzle/postgres.js execute() result into a row array. */
+const RawRowsSchema = z.array(z.record(z.string(), z.unknown()))
+
+const ResultWithRowsSchema = z
+  .object({ rows: z.array(z.record(z.string(), z.unknown())) })
+  .partial()
+
 export function rowsOf(res: unknown): Record<string, unknown>[] {
-  if (Array.isArray(res)) return res as Record<string, unknown>[]
-  const rows = (res as { rows?: unknown }).rows
-  return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : []
+  const direct = RawRowsSchema.safeParse(res)
+  if (direct.success) return direct.data
+  const wrapped = ResultWithRowsSchema.safeParse({ rows: res })
+  if (wrapped.success && wrapped.data.rows !== undefined) {
+    return wrapped.data.rows
+  }
+  return []
 }
 
 /**
@@ -198,26 +209,32 @@ async function importProviders(sql: Sql): Promise<void> {
   const raw = rows[0]?.value
   if (typeof raw !== 'string' || raw === '' || raw === '{}') return
   const parsed = parseLoose(raw)
-  if (
-    parsed.isErr() ||
-    typeof parsed.value !== 'object' ||
-    parsed.value === null
-  ) {
-    return
-  }
+  if (parsed.isErr()) return
+
+  const ProviderImportSchema = z.object({
+    provider_id: z.string(),
+    base_url: z.string(),
+    api_type: z.string().optional(),
+    api_key: z.string().optional(),
+    headers: z.unknown(),
+    models: z.unknown(),
+  })
+  const ProvidersMapSchema = z.record(z.string(), ProviderImportSchema)
+  const providers = ProvidersMapSchema.safeParse(parsed.value)
+  if (!providers.success) return
+
   let imported = 0
-  for (const p of Object.values(parsed.value as Record<string, unknown>)) {
-    if (p === null || typeof p !== 'object') continue
-    const o = p as Record<string, unknown>
-    const pid = typeof o.provider_id === 'string' ? o.provider_id : ''
-    const baseUrl = typeof o.base_url === 'string' ? o.base_url : ''
-    if (!pid || !baseUrl) continue
+  const providerEntries = z
+    .array(z.tuple([z.string(), ProviderImportSchema]))
+    .safeParse(Object.entries(providers.data))
+  if (!providerEntries.success) return
+  for (const [, o] of providerEntries.data) {
     await sql`
       INSERT INTO providers (provider_id, api_type, base_url, api_key, headers, models, created_at, updated_at)
-      VALUES (${pid},
-              ${typeof o.api_type === 'string' ? o.api_type : 'openai-compatible'},
-              ${baseUrl},
-              ${typeof o.api_key === 'string' ? o.api_key : ''},
+      VALUES (${o.provider_id},
+              ${o.api_type ?? 'openai-compatible'},
+              ${o.base_url},
+              ${o.api_key ?? ''},
               ${JSON.stringify(o.headers ?? null)},
               ${JSON.stringify(o.models ?? [])},
               ${nowStr()}, ${nowStr()})

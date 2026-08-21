@@ -78,7 +78,7 @@ export function invokeToolViaBus(
     .andThen(sub =>
       ResultAsync.fromPromise(
         Promise.race([firstResult(sub, name), timeout(name, timeoutMs)]),
-        e => `tool '${name}': ${e instanceof Error ? e.message : String(e)}`,
+        e => `tool '${name}': ${String(e)}`,
       ).andThen(env => resolveContent(bus, env)),
     )
 }

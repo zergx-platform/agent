@@ -6,10 +6,13 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { ProviderRow } from '@rucoder-agent/schema'
 import type { LanguageModel } from 'ai'
 import { err, ok, type Result } from 'neverthrow'
+import { z } from 'zod'
 import type { ServerConfig } from './config.js'
 import type { Db } from './db-client.js'
-import { parseLoose } from './db-client.js'
 import { findProviderForModel, Providers } from './db-providers.js'
+import { parse } from './json.js'
+
+const HeadersSchema = z.record(z.string(), z.string())
 
 export interface ProviderCredentials {
   apiType: string
@@ -153,20 +156,8 @@ export class LlmRegistry {
 }
 
 function parseHeaders(raw: string): Record<string, string> {
-  const parsed = parseLoose(raw)
-  if (
-    parsed.isErr() ||
-    parsed.value === null ||
-    typeof parsed.value !== 'object' ||
-    Array.isArray(parsed.value)
-  ) {
-    return {}
-  }
-  const out: Record<string, string> = {}
-  for (const [k, val] of Object.entries(
-    parsed.value as Record<string, unknown>,
-  )) {
-    if (typeof val === 'string') out[k] = val
-  }
-  return out
+  return parse(HeadersSchema, raw).match(
+    headers => headers,
+    () => ({}),
+  )
 }
