@@ -167,33 +167,29 @@ export class Bus {
   }
 
   /**
-   * Collect all retained messages on a durable subject via repeated
-   * ephemeral ordered-consumer fetches until a batch comes back empty.
+   * Collect all retained messages on a durable subject via a single
+   * start-at-sequence-1 fetch with a large batch size. History is bounded by
+   * the stream's max_age, so a single pull is sufficient.
    */
   replayAll(stream: string, subject: string): ResultAsync<unknown[], string> {
     return ResultAsync.fromPromise(
       (async () => {
+        const consumer = await this.js.consumers.get(stream, {
+          filterSubjects: subject,
+          deliver_policy: DeliverPolicy.StartSequence,
+          opt_start_seq: 1,
+        })
         const out: unknown[] = []
-        for (;;) {
-          const consumer = await this.js.consumers.get(stream, {
-            filterSubjects: subject,
-            deliver_policy: DeliverPolicy.StartSequence,
-            opt_start_seq: 1,
-          })
-          const iter = await consumer.fetch({
-            expires: 1000,
-            max_messages: 500,
-          })
-          let got = 0
-          for await (const m of iter) {
-            got++
-            const parsed = parse(z.unknown(), Buffer.from(m.data))
-            if (parsed.isOk()) out.push(parsed.value)
-          }
-          await iter.close()
-          await consumer.delete()
-          if (got === 0) break
+        const iter = await consumer.fetch({
+          expires: 2000,
+          max_messages: 100_000,
+        })
+        for await (const m of iter) {
+          const parsed = parse(z.unknown(), Buffer.from(m.data))
+          if (parsed.isOk()) out.push(parsed.value)
         }
+        await iter.close()
+        await consumer.delete()
         return out
       })(),
       e => `replay ${stream}/${subject}: ${String(e)}`,
