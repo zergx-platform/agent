@@ -6,6 +6,7 @@
   import ProviderManager from '$lib/ProviderManager.svelte'
   import PresetManager from '$lib/PresetManager.svelte'
   import { Settings, Wrench } from '@lucide/svelte'
+  import { Button } from '$lib/components/ui/button'
 
   let sessions: Session[] = $state([])
   let activeName: string | null = $state(null)
@@ -78,13 +79,13 @@
 
       <div class="mt-3 flex flex-col gap-2">
         <input bind:value={name} placeholder="name" />
-        <button
-          class="bg-accent text-accent-fg rounded px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+        <Button
+          class="w-full"
           disabled={creating}
           onclick={createSession}
         >
           {creating ? 'Creating…' : 'New session'}
-        </button>
+        </Button>
       </div>
     </div>
 
