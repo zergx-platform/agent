@@ -6,11 +6,12 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@rucoder-agent/schema && npm run build --workspace=@rucoder-agent/lib-config && npm run build --workspace=@rucoder-agent/lib-db && npm run build --workspace=@rucoder-agent/lib-bus && npm run build --workspace=@rucoder-agent/lib-llm && npm run build --workspace=@rucoder-agent/lib-agent && npm run build --workspace=@rucoder-agent/server",
+    "build": "npm run build --workspace=@rucoder-agent/schema && npm run build --workspace=@rucoder-agent/lib-config && npm run build --workspace=@rucoder-agent/lib-db && npm run build --workspace=@rucoder-agent/lib-bus && npm run build --workspace=@rucoder-agent/lib-llm && npm run build --workspace=@rucoder-agent/lib-agent && npm run build --workspace=@rucoder-agent/server && npm run build --workspace=@rucoder-agent/ui",
     "check": "biome check .",
     "check:fix": "biome check --fix .",
     "dev": "tsx watch packages/server/src/index.ts",
     "dev:server": "tsx watch packages/server/src/index.ts",
+    "dev:web": "npm run dev --workspace=@rucoder-agent/ui",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "start": "node packages/server/dist/index.js",

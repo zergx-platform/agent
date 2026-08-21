@@ -55,18 +55,20 @@ async function main(): Promise<void> {
 
   app.route('/api/v1', buildRoutes())
 
-  // Static SPA (served from RUCODER_WEB_DIST when set) as the fallback.
-  if (config.webDist !== '') {
-    const root = relative(process.cwd(), config.webDist)
-    app.use(
-      '*',
-      serveStatic({
-        root,
-        rewriteRequestPath: p =>
-          p === '/' || !p.includes('.') ? '/index.html' : p,
-      }),
-    )
-  }
+  // Static SPA fallback: default to the in-repo ./packages/ui/dist when the
+  // frontend ships alongside the server image; RUCODER_WEB_DIST overrides.
+  const webDist =
+    config.webDist !== ''
+      ? config.webDist
+      : relative(process.cwd(), 'packages/ui/dist')
+  app.use(
+    '*',
+    serveStatic({
+      root: webDist,
+      rewriteRequestPath: p =>
+        p === '/' || !p.includes('.') ? '/index.html' : p,
+    }),
+  )
 
   const server = serve({ fetch: app.fetch, port: config.port }, info => {
     console.log(

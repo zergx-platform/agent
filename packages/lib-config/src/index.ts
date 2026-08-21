@@ -43,13 +43,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     webDist: or('RUCODER_WEB_DIST', ''),
     postgresUrl: pgUrl,
     natsUrl: or('NATS_URL', 'nats://nats.develop.svc.cluster.local:4222'),
-    toolServers:
-      envList('RUCODER_TOOL_SERVERS').length > 0
-        ? envList('RUCODER_TOOL_SERVERS')
-        : envList(
-            'RUCODER_TOOL_SERVERS_DEFAULT',
-            'http://127.0.0.1:8091,http://127.0.0.1:8092,http://127.0.0.1:8093,http://127.0.0.1:8094,http://127.0.0.1:8095,http://127.0.0.1:8096',
-          ),
+    toolServers: envList('RUCODER_TOOL_SERVERS'),
     toolTimeoutMs:
       Number.parseInt(or('RUCODER_TOOL_TIMEOUT_SECS', '600'), 10) * 1000,
     llmApiType: or('RUCODER_LLM_API_TYPE', 'openai-compatible'),

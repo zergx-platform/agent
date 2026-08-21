@@ -1,0 +1,65 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-bg: #0b0e14;
+  --color-panel: #11151f;
+  --color-panel2: #171c29;
+  --color-border: #232a3b;
+  --color-fg: #e6e9f0;
+  --color-muted: #8a93a6;
+  --color-accent: #4f8cff;
+  --color-accent-fg: #0b0e14;
+  --color-user: #243044;
+  --color-assistant: #14213b;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+#app {
+  height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2e3649;
+}
+
+@layer base {
+  button {
+    cursor: pointer;
+  }
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+    background: var(--color-panel2);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 6px 8px;
+  }
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: 1px solid var(--color-accent);
+  }
+}
