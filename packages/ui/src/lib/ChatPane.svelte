@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api, type Session } from '$lib/api'
-  import { parseLoose, SSEEnvelopeSchema, SseParamsSchema } from '@rucoder-agent/schema'
+  import { parse, SSEEnvelopeSchema, SseParamsSchema } from '@rucoder-agent/schema'
   import { markdown } from '$lib/markdown'
   import { Send, Square, GitFork, Mailbox, FilePenLine, ChevronDown, Undo2 } from '@lucide/svelte'
   import MailboxPanel from '$lib/MailboxPanel.svelte'
@@ -63,9 +63,9 @@
     stopStream()
     es = new EventSource(api.sessionsStreamUrl(active.name))
     es.onmessage = ev => {
-      const parsed = SSEEnvelopeSchema.safeParse(parseLoose(ev.data).unwrapOr(null))
-      if (!parsed.success) return
-      const data = parsed.data
+      const parsed = parse(SSEEnvelopeSchema, ev.data)
+      if (parsed.isErr()) return
+      const data = parsed.value
       const p = data.params ?? {}
       if (data.event === 'text-delta') {
         const text = SseParamsSchema.safeParse(p)

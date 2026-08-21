@@ -5,7 +5,6 @@ import {
   Presets,
   Providers,
   parse,
-  parseLoose,
 } from '@rucoder-agent/agent'
 import { ConfigBodySchema, PresetBodySchema } from '@rucoder-agent/schema'
 import { ResultAsync } from 'neverthrow'
@@ -276,7 +275,9 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     const r = await Config.get(db, 'providers')
     // Providers live in their own table now; expose them for UI compatibility.
     const providers =
-      r.isOk() && r.value !== null ? parseLoose(r.value).unwrapOr({}) : {}
+      r.isOk() && r.value !== null
+        ? parse(z.unknown(), r.value).unwrapOr({})
+        : {}
     return c.json({ providers }, 200)
   })
   .openapi(getConfigKeyRoute, async c => {
@@ -300,7 +301,8 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     const { db } = c.get('deps')
     const r = await Config.get(db, 'tool_config')
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
-    const value = r.value === null ? {} : parseLoose(r.value).unwrapOr({})
+    const value =
+      r.value === null ? {} : parse(z.unknown(), r.value).unwrapOr({})
     return c.json(value, 200)
   })
   .openapi(putToolConfigRoute, async c => {

@@ -2,7 +2,7 @@ import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { ResultAsync } from 'neverthrow'
 import postgres, { type Sql } from 'postgres'
 import { z } from 'zod'
-import { parseLoose } from './json.js'
+import { parse } from './json.js'
 
 /** The drizzle database handle, with its underlying postgres.js `$client`. */
 export type Db = PostgresJsDatabase & { $client: Sql }
@@ -20,7 +20,6 @@ export type {
 export {
   ContentPayloadSchema,
   parse,
-  parseLoose,
   stringify,
   TextPartDataSchema,
   ToolPartDataSchema,
@@ -218,7 +217,7 @@ async function importProviders(sql: Sql): Promise<void> {
   if (!rawParsed.success || rawParsed.data === '' || rawParsed.data === '{}') {
     return
   }
-  const parsed = parseLoose(rawParsed.data)
+  const parsed = parse(z.unknown(), rawParsed.data)
   if (parsed.isErr()) return
 
   const ProviderImportSchema = z.object({

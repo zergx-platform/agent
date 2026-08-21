@@ -4,8 +4,8 @@ import { z } from 'zod'
 /**
  * A single source of truth for JSON deserialization.
  *
- * Never call `JSON.parse` directly — every inbound boundary uses `parse` /
- * `parseLoose` so malformed input is reported via a `neverthrow` Result rather
+ * Never call `JSON.parse` directly — every inbound boundary uses `parse`
+ * so malformed input is reported via a `neverthrow` Result rather
  * than throwing or silently nulling.
  *
  * `JSON.stringify` is safe for JSON-encodable values and IS permitted for
@@ -38,21 +38,6 @@ export function parse<T extends z.ZodType>(
 /** Serialize a value to a JSON string (outbound only). */
 export function stringify(value: unknown): string {
   return JSON.stringify(value ?? null)
-}
-
-/** Bare JSON parse (no schema) returning a Result on malformed input. */
-export function parseLoose(
-  raw: string | Uint8Array | null | undefined,
-): Result<Json, string> {
-  if (raw === null || raw === undefined)
-    return err('parse: input is null/undefined')
-  const text =
-    raw instanceof Uint8Array ? Buffer.from(raw).toString('utf8') : raw
-  try {
-    return ok(JSON.parse(text))
-  } catch (e) {
-    return err(`parse: invalid JSON: ${String(e)}`)
-  }
 }
 
 // ---- shared payload / envelope schemas (kept here to avoid a schema→db dep) ----

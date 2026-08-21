@@ -9,7 +9,7 @@ import {
 } from 'nats'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
-import { parse, parseLoose } from './json.js'
+import { parse } from './json.js'
 
 // Stream / subject topology — must stay byte-compatible with rucoder-sdk-bus
 // (the Rust side) so both agent replicas interoperate on the same cluster.
@@ -153,7 +153,7 @@ export class Bus {
         bytes =>
           bytes.length === 0
             ? null
-            : parseLoose(bytes).match(
+            : parse(z.unknown(), bytes).match(
                 v => v,
                 () => null,
               ),
@@ -183,7 +183,7 @@ export class Bus {
           let got = 0
           for await (const m of iter) {
             got++
-            const parsed = parseLoose(Buffer.from(m.data))
+            const parsed = parse(z.unknown(), Buffer.from(m.data))
             if (parsed.isOk()) out.push(parsed.value)
           }
           await iter.close()
@@ -277,7 +277,7 @@ export async function* subscriptionToIterator(
   sub: Sub<import('nats').Msg>,
 ): AsyncGenerator<unknown, void, unknown> {
   for await (const m of sub) {
-    const parsed = parseLoose(Buffer.from(m.data))
+    const parsed = parse(z.unknown(), Buffer.from(m.data))
     if (parsed.isOk()) yield parsed.value
   }
 }

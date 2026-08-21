@@ -7,7 +7,6 @@ import {
   mailboxSubject,
   Parts,
   parse,
-  parseLoose,
   runSessionTurn,
   Sessions,
   STREAM_SSE,
@@ -92,15 +91,13 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
         await stream.writeSSE({ data: JSON.stringify(raw) })
       }
     }
-
     for await (const m of sub) {
       if (closed) break
-      const parsed = parseLoose(Buffer.from(m.data))
+      const parsed = parse(EidEventSchema, Buffer.from(m.data))
       if (!parsed.isOk()) continue
-      const v = EidEventSchema.safeParse(parsed.value)
-      if (!v.success) continue
-      if (dedup.duplicate(v.data.eid)) continue
-      await stream.writeSSE({ data: JSON.stringify(parsed.value) })
+      const v = parsed.value
+      if (dedup.duplicate(v.eid)) continue
+      await stream.writeSSE({ data: JSON.stringify(v) })
     }
   })
 }

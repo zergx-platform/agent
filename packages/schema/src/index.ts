@@ -2,19 +2,29 @@ import { err, ok, type Result } from 'neverthrow'
 import { z } from 'zod'
 
 /**
- * JSON-parse helper returning a real `neverthrow` `Result` so callers can
- * decode JSON (e.g. SSE payloads) without try/catch or direct `JSON.parse`.
+ * Single source of truth for JSON deserialization at the schema boundary.
+ * Never call `JSON.parse` directly — decode raw input with a shape-validating
+ * schema so malformed payloads surface as a `neverthrow` Result instead of
+ * throwing or silently nulling.
  */
-export function parseLoose(raw: string | Uint8Array): Result<unknown, string> {
+export function parse<T extends z.ZodType>(
+  schema: T,
+  raw: string | Uint8Array | null | undefined,
+): Result<z.infer<T>, string> {
+  if (raw === null || raw === undefined) {
+    return err('parse: input is null/undefined')
+  }
+  let data: unknown
   try {
-    return ok(
-      JSON.parse(
-        raw instanceof Uint8Array ? Buffer.from(raw).toString('utf8') : raw,
-      ),
+    data = JSON.parse(
+      raw instanceof Uint8Array ? Buffer.from(raw).toString('utf8') : raw,
     )
   } catch (e) {
-    return err(String(e))
+    return err(`parse: invalid JSON: ${String(e)}`)
   }
+  const result = schema.safeParse(data)
+  if (result.success) return ok(result.data)
+  return err(`parse: schema mismatch: ${z.treeifyError(result.error)}`)
 }
 
 // ---- zod schemas (API contract, shared with server) ----------------
