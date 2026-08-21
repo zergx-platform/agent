@@ -1,17 +1,13 @@
 import { buildRoutes } from './routes/index.js'
 
 /**
- * The API app with its routes mounted at the root. Kept module-level so the
- * UI can derive a fully type-safe Hono client via `hc<AppType>()` — routes,
- * `:id` params, request bodies and response shapes all flow from the real
- * server router.
+ * The API app with its routes mounted. Kept module-level so the UI can derive
+ * a fully type-safe Hono client via `hc<AppType>()` — routes, `:id` params,
+ * request bodies and response shapes all flow from the real server router.
  *
- * The `/api/v1` prefix is applied at runtime in `index.ts` (via `.route`), but
- * the client already includes that prefix in its base URL, so the exported
- * type keeps root-relative paths (`/sessions`, `/providers`, `/models`, ...).
- *
- * Runtime concerns (deps injection, error handler, SEA static serving) are
- * attached in `index.ts`.
+ * Following the E1 framework pattern: `buildRoutes()` returns the router
+ * (root-relative paths), and `index.ts` mounts it under `/api/v1` at runtime
+ * while injecting request deps via middleware on the mounting app.
  */
 export const app = buildRoutes()
 

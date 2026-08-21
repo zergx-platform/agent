@@ -96,7 +96,18 @@ async function main(): Promise<void> {
     llm,
   }
 
-  app.onError((err, c) => {
+  // Build the full outer app: deps-injection + error handling + sea-static are
+  // registered BEFORE mounting the routes, mirroring the E1 framework's order
+  // (contextMiddleware → onError → route), so mounted handlers always see
+  // `c.get('deps')`.
+  const servingApp = new Hono<AppEnv>()
+
+  servingApp.use('*', async (c, next) => {
+    c.set('deps', deps)
+    await next()
+  })
+
+  servingApp.onError((err, c) => {
     if (err instanceof HTTPException) {
       if (err.res) return c.newResponse(err.res.body, err.res)
       return c.json({ ok: false, error: err.message }, err.status)
@@ -105,21 +116,10 @@ async function main(): Promise<void> {
     return c.json({ ok: false, error: 'Internal Server Error' }, 500)
   })
 
-  // Inject deps for every request, on the inner app so it runs within the
-  // mounted /api/v1 sub-router's request context.
-  app.use('*', async (c, next) => {
-    c.set('deps', deps)
-    await next()
-  })
-
-  // Mount the API under /api/v1 (runtime). The typed client is derived from
-  // `AppType` (root-relative paths) and includes `/api/v1` in its base URL.
-  const apiApp = new Hono<AppEnv>().route('/api/v1', app)
+  servingApp.route('/api/v1', app)
 
   // Serve the SPA from embedded SEA assets (single-executable deployment).
-  apiApp.use('*', seaStatic())
-
-  const servingApp = apiApp
+  servingApp.use('*', seaStatic())
 
   // Watch every session's mailbox wake wildcard so this replica can claim and
   // run work for any session — the horizontal scale-out trigger.
