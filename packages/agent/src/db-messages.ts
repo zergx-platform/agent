@@ -1,6 +1,7 @@
 import type { MessageRow } from '@rucoder-agent/schema'
 import { eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
+import { z } from 'zod'
 import type { Db } from './db-client.js'
 import { nowStr, q, uuid } from './db-client.js'
 import { messages } from './db-schema.js'
@@ -61,6 +62,13 @@ export const Messages = {
   /**
    * Walk the prev_id chain backwards from the tip (or from `before`'s
    * predecessor), newest → oldest, up to `limit`, then return oldest-first.
+   *
+   * Uses a single `WITH RECURSIVE` query instead of an N+1 loop: the whole
+   * chain is pulled back in one round-trip. The recursive body joins on
+   * `m.id = c.prev_id`, which is served by `idx_messages_prev` so each step
+   * is an index scan. `UNION` (rather than `UNION ALL`) dedupes by row, which
+   * also protects against a malformed `prev_id` cycle looping forever; `depth
+   * < limit` additionally bounds the walk.
    */
   chain(
     db: Db,
@@ -71,35 +79,56 @@ export const Messages = {
     return q(async () => {
       let cursor: string | null
       if (before !== null) {
-        const bm = await db
-          .select({ prevId: messages.prevId })
-          .from(messages)
-          .where(eq(messages.id, before))
-          .limit(1)
-        cursor = bm[0]?.prevId ?? null
+        const bm = await db.$client`
+          SELECT prev_id FROM messages WHERE id = ${before} LIMIT 1`
+        cursor = bm[0]?.prev_id ?? null
       } else {
         // COW: the chain is walked purely on `prev_id`, starting from the
         // session's tip. A fork shares parent messages because its tip points
         // at the same message row (zero-copy fork).
         cursor = tipId
       }
-      const chain: Row[] = []
-      const visited = new Set<string>()
-      while (cursor !== null && chain.length < limit && !visited.has(cursor)) {
-        visited.add(cursor)
-        const row = await db
-          .select()
-          .from(messages)
-          .where(eq(messages.id, cursor))
-          .limit(1)
-        const found = row[0]
-        if (found === undefined) break
-        chain.push(found)
-        cursor = found.prevId
-      }
-      return chain.reverse().map(toRow)
+      if (cursor === null) return []
+
+      const rows = await db.$client`
+        WITH RECURSIVE chain AS (
+          SELECT id, role, content, parts_json, prev_id,
+                 tool_name, tool_call_id, created_at, 0 AS depth
+          FROM messages WHERE id = ${cursor}
+          UNION
+          SELECT m.id, m.role, m.content, m.parts_json, m.prev_id,
+                 m.tool_name, m.tool_call_id, m.created_at,
+                 c.depth + 1
+          FROM messages m JOIN chain c ON m.id = c.prev_id
+        )
+        SELECT id, role, content, parts_json, prev_id,
+               tool_name, tool_call_id, created_at
+        FROM chain WHERE depth < ${limit}
+        ORDER BY depth DESC`
+      return ChainRowSchema.array().parse(rows).map(toChain)
     }, 'query message chain')
   },
 }
 
-type Row = typeof messages.$inferSelect
+/** Raw row shape returned by the recursive CTE (camel-cased via drizzle). */
+const ChainRowSchema = z.object({
+  id: z.string(),
+  role: z.string(),
+  content: z.string(),
+  parts_json: z.string(),
+  prev_id: z.string().nullable(),
+  tool_name: z.string(),
+  tool_call_id: z.string(),
+  created_at: z.string(),
+})
+
+const toChain = (r: z.infer<typeof ChainRowSchema>): ChainMessage => ({
+  id: r.id,
+  role: r.role,
+  content: r.content,
+  parts_json: r.parts_json,
+  prev_id: r.prev_id,
+  tool_name: r.tool_name,
+  tool_call_id: r.tool_call_id,
+  created_at: r.created_at,
+})
