@@ -107,19 +107,22 @@ export class Bus {
   claimSession(sid: string): ResultAsync<boolean, string> {
     return ResultAsync.fromPromise(
       this.sessionState.create(sid, Buffer.from('running')).then(() => true),
-      e => `claim session ${sid}: ${String(e)}`,
+      e => (e instanceof Error ? e : new Error(String(e))),
     ).orElse(err => {
-      // 10071 == "wrong last sequence" (key already exists). This is the
-      // expected contention case, not a genuine error.
-      const apiError = parseClaimError(err)
-      if (apiError === 10071) {
+      // KV `create` throws a NatsError with `api_error.err_code === 10071`
+      // ("wrong last sequence") when the key already exists — that's the
+      // expected contention case, not a genuine error. Handle the raw error
+      // (before it gets stringified into the Result error text).
+      const code = (err as { api_error?: { err_code?: number } }).api_error
+        ?.err_code
+      if (code === 10071) {
         return ResultAsync.fromSafePromise<boolean, string>(
           Promise.resolve(false),
         )
       }
       return ResultAsync.fromPromise<boolean, string>(
-        Promise.reject(new Error(err)),
-        () => err,
+        Promise.reject(err),
+        e => String(e),
       )
     })
   }
@@ -280,15 +283,4 @@ export async function* subscriptionToIterator(
     const parsed = parse(z.unknown(), Buffer.from(m.data))
     if (parsed.isOk()) yield parsed.value
   }
-}
-
-const ClaimErrorSchema = z.object({
-  api_error: z.object({ err_code: z.number() }).optional(),
-})
-
-function parseClaimError(err: string): number | undefined {
-  return parse(ClaimErrorSchema, err).match(
-    v => v.api_error?.err_code,
-    () => undefined,
-  )
 }
