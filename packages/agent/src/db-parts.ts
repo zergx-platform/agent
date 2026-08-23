@@ -9,7 +9,6 @@ const toRow = (r: typeof parts.$inferSelect): PartRow => ({
   id: r.id,
   message_id: r.messageId,
   type: r.type,
-  change_id: r.changeId,
   seq: r.seq,
   data: r.data,
 })
@@ -21,7 +20,6 @@ export const Parts = {
     type: string,
     seq: number,
     data: unknown,
-    changeId: string | null = null,
   ): ResultAsync<string, string> {
     const id = uuid()
     return q(
@@ -31,7 +29,6 @@ export const Parts = {
           messageId,
           type,
           seq,
-          changeId,
           data: JSON.stringify(data ?? {}),
         }),
       'insert part',

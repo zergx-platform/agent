@@ -25,9 +25,7 @@ function part(
   return {
     id: `p-${messageId}-${seq}`,
     message_id: messageId,
-    session_id: 's',
     type,
-    change_id: null,
     seq,
     data: JSON.stringify(data),
   }

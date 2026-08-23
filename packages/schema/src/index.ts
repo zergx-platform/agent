@@ -60,7 +60,6 @@ export const PartRowSchema = z.object({
   id: z.string(),
   message_id: z.string(),
   type: z.string(),
-  change_id: z.string().nullable(),
   seq: z.number().int(),
   data: z.string(),
 })

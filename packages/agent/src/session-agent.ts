@@ -351,7 +351,7 @@ async function prepare(
     whitelist === null
       ? discovered
       : discovered.filter(t => whitelist.has(t.name))
-  const tools = buildAiTools(active, deps.bus, deps.config.toolTimeoutMs)
+  const tools = buildAiTools(active, deps.bus, deps.config.toolTimeoutMs, sid)
 
   const systemPrompt =
     presetRow !== null && presetRow.system_prompt !== ''
@@ -427,10 +427,10 @@ async function persistStep(
       'tool',
       seq++,
       { id: tc.id, name: tc.name, input: tc.input },
-      null,
     )
     // Persist the canonical ToolResult (content + opaque metadata) so the
-    // history rebuild and the read API can both reproduce it verbatim.
+    // history rebuild and the read API can both reproduce it verbatim. The
+    // metadata blob belongs to the tool server; the agent never interprets it.
     const content =
       result !== undefined
         ? result.content

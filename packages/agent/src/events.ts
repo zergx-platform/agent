@@ -38,3 +38,33 @@ export const events = {
     params: { reason },
   }),
 }
+
+/** Lifecycle event kinds published on `notify.lifecycle.session.{kind}`. */
+export type LifecycleEvent =
+  | 'created'
+  | 'forked'
+  | 'renamed'
+  | 'deleted'
+
+/**
+ * Trigger hook: after a session lifecycle action commits, notify the durable
+ * `notify.>` stream so any service (e.g. repo-extension workspaces) can
+ * react. Best-effort by design — consumers must tolerate missed events and
+ * converge via their own reconciliation.
+ */
+export function publishLifecycle(
+  bus: Bus,
+  event: LifecycleEvent,
+  payload: Record<string, unknown>,
+): void {
+  bus
+    .publishStream(`notify.lifecycle.session.${event}`, {
+      event,
+      ...payload,
+    })
+    .mapErr(err => {
+      console.warn(`[agent] lifecycle publish failed (${event}): ${err}`)
+      return err
+    })
+    .then(() => undefined)
+}

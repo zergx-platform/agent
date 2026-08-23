@@ -41,7 +41,6 @@ export const parts = pgTable('parts', {
     .notNull()
     .references(() => messages.id, { onDelete: 'cascade' }),
   type: text('type').notNull(),
-  changeId: text('change_id'),
   seq: integer('seq').notNull().default(0),
   data: text('data').notNull().default('{}'),
 })

@@ -58,12 +58,10 @@ CREATE TABLE IF NOT EXISTS parts (
     id TEXT PRIMARY KEY,
     message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     type TEXT NOT NULL,
-    change_id TEXT,
     seq INTEGER NOT NULL DEFAULT 0,
     data TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_parts_message ON parts (message_id, seq);
-CREATE INDEX IF NOT EXISTS idx_parts_change ON parts (change_id);
 
 CREATE TABLE IF NOT EXISTS mailbox (
     id TEXT PRIMARY KEY,
@@ -178,14 +176,22 @@ export function connectDb(url: string): ResultAsync<Db, string> {
  * a REPLACE-based migration would be required instead.
  */
 async function migrateSchema(sql: Sql): Promise<void> {
+  // Ensure the schema first so a first boot on an empty database works
+  // (CREATE TABLE IF NOT EXISTS is a no-op on a legacy database), then drop
+  // legacy columns. The end state is identical for fresh and legacy DBs.
+  await sql.unsafe(DDL)
   // Drop legacy columns that no longer exist in the model:
   // - messages/parts lost `session_id` (they are session-agnostic).
+  // - parts lost `change_id` (tool-domain data belongs in the tool server's
+  //   own store; the agent keeps tool-result metadata as an opaque blob).
   // - sessions lost the surrogate `id`, and the repo-scoped org/repo/branch
   //   columns (repo association lives in another service).
   // - sessions lost `revert`/`redo_tip_id` (redo removed).
   await sql.unsafe(`
     ALTER TABLE messages DROP COLUMN IF EXISTS session_id;
     ALTER TABLE parts DROP COLUMN IF EXISTS session_id;
+    ALTER TABLE parts DROP COLUMN IF EXISTS change_id;
+    DROP INDEX IF EXISTS idx_parts_change;
     ALTER TABLE sessions DROP COLUMN IF EXISTS id;
     ALTER TABLE sessions DROP COLUMN IF EXISTS org;
     ALTER TABLE sessions DROP COLUMN IF EXISTS repo;
@@ -200,7 +206,6 @@ async function migrateSchema(sql: Sql): Promise<void> {
     ALTER TABLE sessions DROP COLUMN IF EXISTS system_prompt;
     ALTER TABLE mailbox DROP COLUMN IF EXISTS session_id;
   `)
-  await sql.unsafe(DDL)
   // The DDL uses CREATE TABLE IF NOT EXISTS, so a pre-existing `mailbox`
   // table keeps its old `session_id` column (now dropped above) and never
   // gains the new `session_name` column. Add it explicitly for the upgrade

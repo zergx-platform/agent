@@ -8,6 +8,7 @@ import {
   type Sub,
   type Subscription,
 } from 'nats'
+import { createHash } from 'node:crypto'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import { parse } from './json.js'
@@ -27,10 +28,21 @@ export const BUCKET_SESSION_STATE = 'RCODER_SESSION_STATE'
 /** Object-store key under BUCKET_TOOL holding the cached models.dev catalog. */
 export const MODELS_DEV_KEY = 'models-dev-catalog.json'
 
-export const mailboxSubject = (sid: string) => `mailbox.session.${sid}`
-export const sseSubject = (sid: string) => `sse.session.${sid}`
+export const mailboxSubject = (sid: string) => `mailbox.session.${natsToken(sid)}`
+export const sseSubject = (sid: string) => `sse.session.${natsToken(sid)}`
 export const toolCallSubject = (name: string) => `tool.call.${name}`
 export const toolResultSubject = (callId: string) => `tool.result.${callId}`
+
+/**
+ * Deterministic NATS-safe token for an arbitrary session name. Session
+ * names may contain characters that are illegal in NATS subject tokens and
+ * KV keys (`:`, `#`, space, …). Everywhere the agent would embed a session
+ * name in NATS infrastructure (subjects, lease keys) it embeds this token
+ * instead — the real session name always travels in the payload.
+ * base64url alphabet [A-Za-z0-9_-] is subject-legal; 22 chars ≈ 132 bits.
+ */
+export const natsToken = (sid: string): string =>
+  createHash('sha256').update(sid, 'utf8').digest('base64url').slice(0, 22)
 
 /** Wildcard covering every session mailbox wake subject. */
 export const MAILBOX_WILDCARD = 'mailbox.session.>'
@@ -65,11 +77,19 @@ export class Bus {
     private readonly requestTimeoutMs = 2000,
   ) {}
 
-  /** Core (non-durable) publish. */
-  publish(subject: string, payload: unknown): ResultAsync<void, string> {
+  /** Core (non-durable) publish. `reply` sets the inbox extensions answer
+   *  (e.g. `tool.result.{call_id}` for tool calls — the Go/TS extension SDKs
+   *  only respond via msg.Respond, i.e. when a reply subject is present). */
+  publish(
+    subject: string,
+    payload: unknown,
+    reply?: string,
+  ): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
       Promise.resolve(
-        this.nc.publish(subject, Buffer.from(JSON.stringify(payload))),
+        this.nc.publish(subject, Buffer.from(JSON.stringify(payload)), {
+          reply,
+        }),
       ),
       e => `publish ${subject}: ${String(e)}`,
     )
@@ -149,8 +169,9 @@ export class Bus {
    * The key carries a TTL so a crashed holder is automatically released.
    */
   claimSession(sid: string): ResultAsync<boolean, string> {
+    const key = natsToken(sid)
     return ResultAsync.fromPromise(
-      this.sessionState.create(sid, Buffer.from('running')).then(() => true),
+      this.sessionState.create(key, Buffer.from('running')).then(() => true),
       e => (e instanceof Error ? e : new Error(String(e))),
     ).orElse(err => {
       // KV `create` throws a NatsError with `api_error.err_code === 10071`
@@ -173,7 +194,7 @@ export class Bus {
   /** Release the per-session run-state lease (back to idle). */
   releaseSession(sid: string): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
-      this.sessionState.delete(sid).then(() => undefined),
+      this.sessionState.delete(natsToken(sid)).then(() => undefined),
       e => `release session ${sid}: ${String(e)}`,
     )
   }

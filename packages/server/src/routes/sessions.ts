@@ -5,13 +5,12 @@ import {
   Mailbox,
   Messages,
   mailboxSubject,
-  Parts,
   parse,
+  publishLifecycle,
   runSessionTurn,
   Sessions,
   STREAM_SSE,
   sseSubject,
-  ToolPartDataSchema,
 } from '@rucoder-agent/agent'
 import {
   CreateSessionBodySchema,
@@ -421,27 +420,6 @@ const mailboxRoute = createRoute({
   },
 })
 
-const changesRoute = createRoute({
-  method: 'get',
-  path: '/sessions/{id}/changes',
-  summary: 'List tool changes',
-  request: { params: z.object({ id: z.string() }) },
-  responses: {
-    200: {
-      description: 'Changes',
-      content: {
-        'application/json': {
-          schema: z.object({ changes: z.array(z.unknown()) }),
-        },
-      },
-    },
-    500: {
-      description: 'Error',
-      content: { 'application/json': { schema: ErrorSchema } },
-    },
-  },
-})
-
 const settingsRoute = createRoute({
   method: 'patch',
   path: '/sessions/{id}/settings',
@@ -500,17 +478,17 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
       : c.json({ sessions: r.value.map(sessionToJson) }, 200)
   })
   .openapi(createSessionRoute, async c => {
-    const { db } = c.get('deps')
+    const deps = c.get('deps')
     const b = c.req.valid('json')
-    const exists = await Sessions.exists(db, b.name)
+    const exists = await Sessions.exists(deps.db, b.name)
     if (exists.isErr()) return err500(c, exists.error)
     if (exists.value) {
       return c.json({ ok: false, error: 'Session already exists' }, 409)
     }
-    const name = await Sessions.create(db, b)
-    return name.isErr()
-      ? err500(c, name.error)
-      : c.json({ ok: true, session_name: name.value }, 200)
+    const name = await Sessions.create(deps.db, b)
+    if (name.isErr()) return err500(c, name.error)
+    publishLifecycle(deps.bus, 'created', { session_name: b.name })
+    return c.json({ ok: true, session_name: name.value }, 200)
   })
   .openapi(getSessionRoute, async c => {
     const { db } = c.get('deps')
@@ -521,11 +499,13 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
       : c.json({ session: sessionToJson(r.value) }, 200)
   })
   .openapi(deleteSessionRoute, async c => {
-    const { db } = c.get('deps')
+    const deps = c.get('deps')
     const id = c.req.valid('param').id
     interruptRun(id)
-    const r = await Sessions.delete(db, id)
-    return r.isErr() ? err500(c, r.error) : c.json({ ok: true }, 200)
+    const r = await Sessions.delete(deps.db, id)
+    if (r.isErr()) return err500(c, r.error)
+    publishLifecycle(deps.bus, 'deleted', { session_name: id })
+    return c.json({ ok: true }, 200)
   })
   .openapi(listMessagesRoute, async c => {
     const { db } = c.get('deps')
@@ -597,9 +577,12 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
       preset: p.preset,
       tipId: p.tip_id,
     })
-    return name.isErr()
-      ? err500(c, name.error)
-      : c.json({ ok: true, session_name: name.value }, 200)
+    if (name.isErr()) return err500(c, name.error)
+    publishLifecycle(deps.bus, 'forked', {
+      session_name: b.name,
+      parent: pid,
+    })
+    return c.json({ ok: true, session_name: name.value }, 200)
   })
   .openapi(renameRoute, async c => {
     const deps = c.get('deps')
@@ -632,6 +615,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     if (created.isErr()) return err500(c, created.error)
     const removed = await Sessions.delete(deps.db, oldName)
     if (removed.isErr()) return err500(c, removed.error)
+    publishLifecycle(deps.bus, 'renamed', { from: oldName, to: b.name })
     return c.json({ ok: true, session_name: b.name }, 200)
   })
   .openapi(modelRoute, async c => {
@@ -673,33 +657,6 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     const { db } = c.get('deps')
     const r = await Mailbox.list(db, c.req.valid('param').id)
     return r.isErr() ? err500(c, r.error) : c.json({ entries: r.value }, 200)
-  })
-  .openapi(changesRoute, async c => {
-    const { db } = c.get('deps')
-    const sid = c.req.valid('param').id
-    const tipRes = await Sessions.tip(db, sid)
-    const tipId = tipRes.isErr() ? null : tipRes.value
-    const chain = await Messages.chain(db, tipId, 100_000, null)
-    if (chain.isErr()) return err500(c, chain.error)
-    const ids = chain.value.map(m => m.id)
-    const partsRes = await Parts.listByMessages(db, ids)
-    if (partsRes.isErr()) return err500(c, partsRes.error)
-
-    const changes: Array<Record<string, unknown>> = []
-    for (const p of partsRes.value) {
-      if (p.type !== 'tool' || p.change_id === null) continue
-      const data = parse(ToolPartDataSchema, p.data)
-      const name = data.isOk() ? data.value.name : 'tool'
-      changes.push({
-        change_id: p.change_id,
-        tool_name: name,
-        timestamp: '',
-        message_id: p.message_id,
-        content: '',
-        seq: p.seq,
-      })
-    }
-    return c.json({ changes }, 200)
   })
   .openapi(settingsRoute, async c => {
     const { db } = c.get('deps')

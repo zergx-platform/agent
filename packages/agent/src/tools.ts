@@ -78,7 +78,13 @@ export function invokeToolViaBus(
     .subscribe(toolResultSubject(callId))
     .andThen(sub =>
       bus
-        .publish(toolCallSubject(name), { call_id: callId, arguments: args })
+        .publish(
+          toolCallSubject(name),
+          { call_id: callId, arguments: args },
+          // Reply subject: extension SDKs answer via msg.Respond, so the
+          // result lands on tool.result.{call_id} — the subject we hold.
+          toolResultSubject(callId),
+        )
         .map(() => sub),
     )
     .andThen(sub =>
@@ -132,11 +138,18 @@ function resolveContent(
   )
 }
 
-/** Build the AI SDK tool set from discovered manifests. */
+/**
+ * Build the AI SDK tool set from discovered manifests. When `sessionId` is
+ * given, it is injected into every call as the out-of-band `_session`
+ * argument: tool servers resolve it to their workspace context (repo +
+ * bookmark). The argument is not part of any tool schema, so the model can
+ * neither see nor forge it.
+ */
 export function buildAiTools(
   discovered: DiscoveredTool[],
   bus: Bus,
   timeoutMs: number,
+  sessionId?: string,
 ): Record<string, Tool<Record<string, unknown>, ToolResult>> {
   const tools: Record<string, Tool<Record<string, unknown>, ToolResult>> = {}
   for (const t of discovered) {
@@ -144,11 +157,15 @@ export function buildAiTools(
       description: t.description,
       inputSchema: jsonSchema(t.inputSchema),
       execute: async (args, { toolCallId }) => {
+        const callArgs =
+          sessionId === undefined
+            ? (args ?? {})
+            : { ...(args ?? {}), _session: sessionId }
         const result = await invokeToolViaBus(
           bus,
           t.name,
           toolCallId,
-          args ?? {},
+          callArgs,
           timeoutMs,
         )
         return result.match(
