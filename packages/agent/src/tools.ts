@@ -55,6 +55,58 @@ export async function discoverTools(
   return out
 }
 
+// ---- cached discovery (the per-turn hot path) ----
+
+interface DiscoveryCache {
+  tools: DiscoveredTool[]
+  expiresAt: number
+  inFlight: Promise<DiscoveredTool[]> | null
+}
+
+const discoveryCache: DiscoveryCache = {
+  tools: [],
+  expiresAt: 0,
+  inFlight: null,
+}
+
+/**
+ * discoverTools with a TTL cache: every turn would otherwise pay the full
+ * broadcast wait (~500ms) before the model even starts. Concurrent turns
+ * share one in-flight broadcast (no thundering herd). Extensions restarted
+ * with a changed toolset surface within one TTL; tune via
+ * RUCODER_DISCOVERY_TTL_MS, disable with 0.
+ */
+export async function discoverToolsCached(
+  bus: Bus,
+  ttlMs = discoveryTtlMs(),
+): Promise<DiscoveredTool[]> {
+  if (ttlMs <= 0) return discoverTools(bus)
+  const now = Date.now()
+  if (discoveryCache.expiresAt > now) return discoveryCache.tools
+  if (discoveryCache.inFlight !== null) return discoveryCache.inFlight
+
+  discoveryCache.inFlight = discoverTools(bus).then(tools => {
+    discoveryCache.tools = tools
+    discoveryCache.expiresAt = Date.now() + ttlMs
+    discoveryCache.inFlight = null
+    return tools
+  })
+  return discoveryCache.inFlight
+}
+
+/** Drop the cached discovery result (e.g. after config changes). */
+export function invalidateDiscoveryCache(): void {
+  discoveryCache.tools = []
+  discoveryCache.expiresAt = 0
+}
+
+function discoveryTtlMs(): number {
+  const v = process.env.RUCODER_DISCOVERY_TTL_MS
+  if (v === undefined) return 30_000
+  const n = Number.parseInt(v, 10)
+  return Number.isNaN(n) ? 30_000 : n
+}
+
 function toolToDiscovered(
   extId: string,
   t: ExtensionTool,

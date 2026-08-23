@@ -1,7 +1,12 @@
 import { ResultAsync } from 'neverthrow'
 import { describe, expect, it } from 'vitest'
 import type { Bus } from '../src/bus.js'
-import { buildAiTools, type DiscoveredTool } from '../src/tools.js'
+import {
+  buildAiTools,
+  discoverToolsCached,
+  invalidateDiscoveryCache,
+  type DiscoveredTool,
+} from '../src/tools.js'
 
 interface Published {
   subject: string
@@ -122,5 +127,71 @@ describe('buildAiTools _session injection', () => {
     )
     await tools.read.execute({}, execOpts('c4'))
     expect(replies[0]).toBe('tool.result.c4')
+  })
+})
+
+describe('discoverToolsCached', () => {
+  /** Bus fake counting requestMany broadcasts. */
+  const countingBus = (): { bus: Bus; broadcasts: () => number } => {
+    let n = 0
+    const reply = Buffer.from(
+      JSON.stringify({
+        id: 'repo-extension',
+        version: '0.3.0',
+        capabilities: ['tools'],
+        tools: [{ name: 'read', description: 'd' }],
+      }),
+    )
+    const bus = {
+      requestMany: () => {
+        n += 1
+        return ResultAsync.fromSafePromise(
+          (async () => {
+            await new Promise(r => setTimeout(r, 5))
+            return [reply]
+          })(),
+        )
+      },
+    }
+    return { bus: bus as unknown as Bus, broadcasts: () => n }
+  }
+
+  it('serves repeat calls from cache within the TTL (one broadcast)', async () => {
+    invalidateDiscoveryCache()
+    const { bus, broadcasts } = countingBus()
+    const a = await discoverToolsCached(bus, 60_000)
+    const b = await discoverToolsCached(bus, 60_000)
+    expect(a).toHaveLength(1)
+    expect(b).toEqual(a)
+    expect(broadcasts()).toBe(1)
+  })
+
+  it('shares one in-flight broadcast across concurrent callers', async () => {
+    invalidateDiscoveryCache()
+    const { bus, broadcasts } = countingBus()
+    const [a, b] = await Promise.all([
+      discoverToolsCached(bus, 60_000),
+      discoverToolsCached(bus, 60_000),
+    ])
+    expect(a).toEqual(b)
+    expect(broadcasts()).toBe(1)
+  })
+
+  it('re-broadcasts after the TTL expires', async () => {
+    invalidateDiscoveryCache()
+    const { bus, broadcasts } = countingBus()
+    await discoverToolsCached(bus, 10) // 10ms TTL
+    await new Promise(r => setTimeout(r, 20))
+    await discoverToolsCached(bus, 10)
+    expect(broadcasts()).toBe(2)
+  })
+
+  it('invalidateDiscoveryCache forces a fresh broadcast', async () => {
+    invalidateDiscoveryCache()
+    const { bus, broadcasts } = countingBus()
+    await discoverToolsCached(bus, 60_000)
+    invalidateDiscoveryCache()
+    await discoverToolsCached(bus, 60_000)
+    expect(broadcasts()).toBe(2)
   })
 })

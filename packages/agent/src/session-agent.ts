@@ -22,7 +22,7 @@ import {
   WakePayloadSchema,
 } from './json.js'
 import type { LlmRegistry } from './llm.js'
-import { buildAiTools, discoverTools } from './tools.js'
+import { buildAiTools, discoverToolsCached } from './tools.js'
 
 export interface AgentDeps {
   db: Db
@@ -346,7 +346,7 @@ async function prepare(
   const toolNames = presetTools.isOk() ? presetTools.value : []
   const whitelist = toolNames.length > 0 ? new Set(toolNames) : null
 
-  const discovered = await discoverTools(deps.bus)
+  const discovered = await discoverToolsCached(deps.bus)
   const active =
     whitelist === null
       ? discovered
