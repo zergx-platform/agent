@@ -218,14 +218,28 @@ async function runTurnOnce(
 
       for await (const part of result.fullStream) {
         switch (part.type) {
+          case 'start-step':
+            pushEvent(deps.bus, sid, 'step-start', {})
+            break
+          case 'text-start':
+            pushEvent(deps.bus, sid, 'text-start', { id: 't0' })
+            break
           case 'text-delta':
             text += part.text
-            pushEvent(deps.bus, sid, 'text-delta', { text: part.text })
+            pushEvent(deps.bus, sid, 'text-delta', { id: 't0', text: part.text })
+            break
+          case 'text-end':
+            pushEvent(deps.bus, sid, 'text-end', { id: 't0' })
             break
           case 'tool-call':
             toolCalls.push({
               id: part.toolCallId,
               name: part.toolName,
+              input: part.input,
+            })
+            pushEvent(deps.bus, sid, 'tool-call', {
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
               input: part.input,
             })
             break
@@ -236,8 +250,13 @@ async function runTurnOnce(
               result: part.output,
             })
             pushEvent(deps.bus, sid, 'tool-result', {
-              tool_use_id: part.toolCallId,
-              content: part.output.content,
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              formatted: part.output.content,
+              change_id:
+                typeof part.output.metadata?.change_id === 'string'
+                  ? part.output.metadata.change_id
+                  : undefined,
             })
             break
           case 'tool-error':
@@ -248,9 +267,9 @@ async function runTurnOnce(
               name: part.toolName,
               result: { content: String(part.error), metadata: null },
             })
-            pushEvent(deps.bus, sid, 'tool-result', {
-              tool_use_id: part.toolCallId,
-              content: String(part.error),
+            pushEvent(deps.bus, sid, 'tool-error', {
+              toolCallId: part.toolCallId,
+              error: String(part.error),
             })
             break
           case 'tool-output-denied':
