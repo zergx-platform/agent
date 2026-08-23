@@ -22,6 +22,8 @@ export const ToolManifestSchema = z.object({
 })
 
 export interface DiscoveredTool {
+  /** Owning extension id — tool calls go to `tool.call.{extId}.{name}`. */
+  extId: string
   name: string
   description: string
   /** JSON Schema object describing the tool's arguments. */
@@ -47,14 +49,18 @@ export async function discoverTools(
     const m = parsed.value
     if (!m.capabilities.includes('tools')) continue
     for (const t of m.tools ?? []) {
-      out.push(toolToDiscovered(t))
+      out.push(toolToDiscovered(m.id, t))
     }
   }
   return out
 }
 
-function toolToDiscovered(t: ExtensionTool): DiscoveredTool {
+function toolToDiscovered(
+  extId: string,
+  t: ExtensionTool,
+): DiscoveredTool {
   return {
+    extId,
     name: t.name,
     description: t.description,
     inputSchema: t.input_schema ?? { type: 'object', properties: {} },
@@ -69,6 +75,7 @@ function toolToDiscovered(t: ExtensionTool): DiscoveredTool {
  */
 export function invokeToolViaBus(
   bus: Bus,
+  extId: string,
   name: string,
   callId: string,
   args: Record<string, unknown>,
@@ -79,7 +86,7 @@ export function invokeToolViaBus(
     .andThen(sub =>
       bus
         .publish(
-          toolCallSubject(name),
+          toolCallSubject(extId, name),
           { call_id: callId, arguments: args },
           // Reply subject: extension SDKs answer via msg.Respond, so the
           // result lands on tool.result.{call_id} — the subject we hold.
@@ -163,6 +170,7 @@ export function buildAiTools(
             : { ...(args ?? {}), _session: sessionId }
         const result = await invokeToolViaBus(
           bus,
+          t.extId,
           t.name,
           toolCallId,
           callArgs,

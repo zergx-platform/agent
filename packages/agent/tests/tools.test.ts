@@ -54,6 +54,7 @@ function fakeBus() {
 }
 
 const tool: DiscoveredTool = {
+  extId: 'repo-extension',
   name: 'read',
   description: 'read a file',
   inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
@@ -71,7 +72,7 @@ describe('buildAiTools _session injection', () => {
       execOpts('c1'),
     )
     expect(result).toEqual({ content: 'ok', metadata: null })
-    const call = published.find(p => p.subject === 'tool.call.read')
+    const call = published.find(p => p.subject === 'tool.call.repo-extension.read')
     expect(call?.payload).toEqual({
       call_id: 'c1',
       arguments: { path: 'x', _session: 'acme--api--main' },
@@ -82,7 +83,7 @@ describe('buildAiTools _session injection', () => {
     const { bus, published } = fakeBus()
     const tools = buildAiTools([tool], bus, 500)
     await tools.read.execute({ path: 'x' }, execOpts('c2'))
-    const call = published.find(p => p.subject === 'tool.call.read')
+    const call = published.find(p => p.subject === 'tool.call.repo-extension.read')
     expect(call?.payload).toEqual({
       call_id: 'c2',
       arguments: { path: 'x' },
@@ -94,7 +95,7 @@ describe('buildAiTools _session injection', () => {
     const tools = buildAiTools([tool], bus, 500, 's')
     await tools.read.execute({}, execOpts('c3'))
     expect(log[0]).toBe('sub:tool.result.c3')
-    expect(log[1]).toBe('pub:tool.call.read')
+    expect(log[1]).toBe('pub:tool.call.repo-extension.read')
   })
 
   it('publishes with reply=tool.result.{call_id} (extension SDKs need it)', async () => {

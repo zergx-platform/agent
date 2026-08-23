@@ -20,12 +20,19 @@ their message types from that JSON Schema.
 | Discovery    | `rucoder.extension.discover`             | agent → extensions   |
 | Variable     | `extension.{id}.prompt.variable.{name}`  | agent → one extension |
 
-Tool execution reuses the existing tool contract (see `packages/agent/src/tools.ts`):
+Tool execution reuses the tool contract with **namespaced subjects** (see
+`packages/agent/src/tools.ts`):
 
-| Purpose      | Subject                          | Direction          |
-| ------------ | -------------------------------- | ------------------ |
-| Tool call    | `tool.call.{name}`               | agent → tool server|
-| Tool result  | `tool.result.{call_id}`          | tool server → agent|
+| Purpose      | Subject                                | Direction          |
+| ------------ | -------------------------------------- | ------------------ |
+| Tool call    | `tool.call.{extension-id}.{tool}`      | agent → extension  |
+| Tool result  | `tool.result.{call_id}`                | extension → agent  |
+
+The extension id prefix prevents tool-name collisions: two extensions may
+both expose a `write` without intercepting each other's calls. Agents MUST
+record the owning extension id at discovery time and publish to the
+namespaced subject; extension SDKs (Go ≥ v0.1.4, TS) subscribe it
+automatically.
 
 ## Discovery
 

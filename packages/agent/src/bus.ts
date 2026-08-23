@@ -30,7 +30,14 @@ export const MODELS_DEV_KEY = 'models-dev-catalog.json'
 
 export const mailboxSubject = (sid: string) => `mailbox.session.${natsToken(sid)}`
 export const sseSubject = (sid: string) => `sse.session.${natsToken(sid)}`
-export const toolCallSubject = (name: string) => `tool.call.${name}`
+/**
+ * Namespaced tool-call subject: `tool.call.{extension-id}.{tool}`.
+ * Namespacing prevents tool-name collisions between extensions (two
+ * extensions exposing `write` would otherwise intercept each other's calls
+ * on the flat subject).
+ */
+export const toolCallSubject = (extId: string, name: string) =>
+  `tool.call.${extId}.${name}`
 export const toolResultSubject = (callId: string) => `tool.result.${callId}`
 
 /**
