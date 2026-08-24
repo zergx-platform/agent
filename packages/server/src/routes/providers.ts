@@ -29,7 +29,7 @@ function providerToJson(p: {
     base_url: p.base_url,
     api_key: p.api_key,
     headers: headers.isOk() ? headers.value : {},
-    models: models.isOk() ? models.value : [],
+    models: (models.isOk() ? models.value : []).map(id => ({ id, name: id })),
   }
 }
 
@@ -176,7 +176,7 @@ export const providerRoutes = new OpenAPIHono<AppEnv>()
       baseUrl: b.base_url,
       apiKey: b.api_key ?? '',
       headers: b.headers ?? null,
-      models: b.models ?? [],
+      models: (b.models ?? []).map(m => m.id),
     })
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     deps.llm.invalidate()

@@ -145,13 +145,19 @@ export const ConfigBodySchema = z.object({
 })
 export type ConfigBody = z.infer<typeof ConfigBodySchema>
 
+export const ProviderModelBodySchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+})
+export type ProviderModelBody = z.infer<typeof ProviderModelBodySchema>
+
 export const ProviderBodySchema = z.object({
   provider_id: z.string().min(1),
   api_type: z.string().min(1),
   base_url: z.string().url(),
   api_key: z.string().optional(),
   headers: z.record(z.string(), z.unknown()).optional(),
-  models: z.array(z.string()).optional(),
+  models: z.array(ProviderModelBodySchema).optional(),
 })
 export type ProviderBody = z.infer<typeof ProviderBodySchema>
 

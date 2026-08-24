@@ -27,7 +27,16 @@ const listPresetsRoute = createRoute({
     200: {
       description: 'Preset rows',
       content: {
-        'application/json': { schema: z.array(z.unknown()) },
+        'application/json': {
+          schema: z.array(
+            z.object({
+              id: z.string(),
+              system_prompt: z.string(),
+              tools: z.array(z.string()),
+              max_turns: z.number(),
+            }),
+          ),
+        },
       },
     },
     500: {
@@ -222,7 +231,13 @@ const listToolsRoute = createRoute({
         'application/json': {
           schema: z.object({
             tools: z.array(
-              z.object({ name: z.string(), description: z.string() }),
+              z.object({
+                name: z.string(),
+                description: z.string(),
+                category: z.string(),
+                parameters: z.record(z.string(), z.unknown()).nullable(),
+                configFields: z.array(z.unknown()).nullable(),
+              }),
             ),
           }),
         },
@@ -242,7 +257,9 @@ const listModelsRoute = createRoute({
       description: 'Models',
       content: {
         'application/json': {
-          schema: z.object({ models: z.array(z.string()) }),
+          schema: z.object({
+            models: z.array(z.object({ id: z.string(), name: z.string() })),
+          }),
         },
       },
     },
@@ -275,9 +292,16 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listPresetsRoute, async c => {
     const { db } = c.get('deps')
     const r = await Presets.list(db)
-    return r.isErr()
-      ? c.json({ ok: false, error: r.error }, 500)
-      : c.json(r.value, 200)
+    if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
+    return c.json(
+      r.value.map(p => ({
+        id: p.id,
+        system_prompt: p.system_prompt,
+        tools: parse(z.array(z.string()), p.tools).unwrapOr([]),
+        max_turns: p.max_turns,
+      })),
+      200,
+    )
   })
   .openapi(upsertPresetRoute, async c => {
     const { db } = c.get('deps')
@@ -365,6 +389,9 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
         tools: tools.map(t => ({
           name: t.name,
           description: t.description,
+          category: t.extId,
+          parameters: t.inputSchema ?? null,
+          configFields: null,
         })),
       },
       200,
@@ -381,7 +408,7 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     }
     if (!models.includes(llm.defaultModelId()))
       models.unshift(llm.defaultModelId())
-    return c.json({ models }, 200)
+    return c.json({ models: models.map(id => ({ id, name: id })) }, 200)
   })
   .openapi(recoreConfigRoute, async c => {
     const deps = c.get('deps')
