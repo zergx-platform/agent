@@ -167,49 +167,20 @@ export function connectDb(url: string): ResultAsync<Db, string> {
 }
 
 /**
- * One-shot migration: switch the `sessions` primary key from a surrogate `id`
- * (uuid) to the globally-unique, immutable `name`. Because name is immutable
- * (rename == fork+delete), no external references ever change.
- *
- * In a non-empty existing database this drops and recreates the session-scoped
- * tables. This is safe for a greenfield service; for production with live data
- * a REPLACE-based migration would be required instead.
+ * One-shot schema. The service has never shipped a stable release, so there
+ * is no compatibility contract to preserve: on every boot we drop the
+ * session-scoped tables and recreate them from the canonical DDL. Message
+ * history is greenfield/regenerable and is intentionally discarded — this is
+ * a dev-stage reset, not a data migration.
  */
 async function migrateSchema(sql: Sql): Promise<void> {
-  // Ensure the schema first so a first boot on an empty database works
-  // (CREATE TABLE IF NOT EXISTS is a no-op on a legacy database), then drop
-  // legacy columns. The end state is identical for fresh and legacy DBs.
-  await sql.unsafe(DDL)
-  // Drop legacy columns that no longer exist in the model:
-  // - messages/parts lost `session_id` (they are session-agnostic).
-  // - parts lost `change_id` (tool-domain data belongs in the tool server's
-  //   own store; the agent keeps tool-result metadata as an opaque blob).
-  // - sessions lost the surrogate `id`, and the repo-scoped org/repo/branch
-  //   columns (repo association lives in another service).
-  // - sessions lost `revert`/`redo_tip_id` (redo removed).
   await sql.unsafe(`
-    ALTER TABLE messages DROP COLUMN IF EXISTS session_id;
-    ALTER TABLE parts DROP COLUMN IF EXISTS session_id;
-    ALTER TABLE parts DROP COLUMN IF EXISTS change_id;
-    DROP INDEX IF EXISTS idx_parts_change;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS id;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS org;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS repo;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS branch;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS revert;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS redo_tip_id;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS parent_id;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS fork_at_msg_id;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS worker_url;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS container_id;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS max_turns;
-    ALTER TABLE sessions DROP COLUMN IF EXISTS system_prompt;
-    ALTER TABLE mailbox DROP COLUMN IF EXISTS session_id;
+    DROP TABLE IF EXISTS mailbox;
+    DROP TABLE IF EXISTS parts;
+    DROP TABLE IF EXISTS messages;
+    DROP TABLE IF EXISTS sessions;
   `)
-  // The DDL uses CREATE TABLE IF NOT EXISTS, so a pre-existing `mailbox`
-  // table keeps its old `session_id` column (now dropped above) and never
-  // gains the new `session_name` column. Add it explicitly for the upgrade
-  // path, and repoint the FK from sessions(id) → sessions(name) when needed.
+  await sql.unsafe(DDL)
   await sql.unsafe(`
     ALTER TABLE mailbox ADD COLUMN IF NOT EXISTS session_name TEXT;
   `)
