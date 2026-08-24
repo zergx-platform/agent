@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   connect,
   DeliverPolicy,
@@ -8,7 +9,6 @@ import {
   type Sub,
   type Subscription,
 } from 'nats'
-import { createHash } from 'node:crypto'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import { parse } from './json.js'
@@ -25,10 +25,14 @@ export const BUCKET_TOOL = 'RCODER_TOOL'
 /** KV bucket holding per-session run-state leases (running/idle). */
 export const BUCKET_SESSION_STATE = 'RCODER_SESSION_STATE'
 
+/** KV bucket caching the per-session LLM-context message id list (24h TTL). */
+export const BUCKET_SESSION_IDS = 'RCODER_SESSION_IDS'
+
 /** Object-store key under BUCKET_TOOL holding the cached models.dev catalog. */
 export const MODELS_DEV_KEY = 'models-dev-catalog.json'
 
-export const mailboxSubject = (sid: string) => `mailbox.session.${natsToken(sid)}`
+export const mailboxSubject = (sid: string) =>
+  `mailbox.session.${natsToken(sid)}`
 export const sseSubject = (sid: string) => `sse.session.${natsToken(sid)}`
 /**
  * Namespaced tool-call subject: `tool.call.{extension-id}.{tool}`.
@@ -68,6 +72,9 @@ const STREAMS: Array<{ name: string; subjects: string[] }> = [
 
 const DAY_NS = 24 * 3600 * 1_000_000_000
 
+/** TTL for the session id-list cache (24h). */
+export const SESSION_IDS_TTL_NS = DAY_NS
+
 /** Lease TTL for per-session run-state keys (ms). */
 const SESSION_LEASE_MS = 30_000
 
@@ -81,6 +88,7 @@ export class Bus {
     private readonly nc: NatsConnection,
     private readonly js: JetStreamClient,
     private readonly sessionState: KV,
+    private readonly sessionIds: KV,
     private readonly requestTimeoutMs = 2000,
   ) {}
 
@@ -206,6 +214,52 @@ export class Bus {
     )
   }
 
+  /** Read the cached session context id list, if present. */
+  getSessionIds(sid: string): ResultAsync<string[] | null, string> {
+    return ResultAsync.fromPromise(
+      this.sessionIds.get(natsToken(sid)).then(e => {
+        if (e === null) return null
+        const parsed = parse(z.array(z.string()), e.string())
+        return parsed.isOk() ? parsed.value : null
+      }),
+      e => `get session ids: ${String(e)}`,
+    )
+  }
+
+  /** Write the session context id list (full overwrite). */
+  putSessionIds(sid: string, ids: string[]): ResultAsync<void, string> {
+    return ResultAsync.fromPromise(
+      this.sessionIds
+        .put(natsToken(sid), Buffer.from(JSON.stringify(ids)))
+        .then(() => undefined),
+      e => `put session ids: ${String(e)}`,
+    )
+  }
+
+  /** Append one message id to the session context id list (no-op on miss). */
+  appendSessionId(sid: string, id: string): ResultAsync<void, string> {
+    return ResultAsync.fromPromise(
+      this.sessionIds.get(natsToken(sid)).then(e => {
+        if (e === null) return undefined
+        const parsed = parse(z.array(z.string()), e.string())
+        const ids = parsed.isOk() ? parsed.value : []
+        ids.push(id)
+        return this.sessionIds
+          .put(natsToken(sid), Buffer.from(JSON.stringify(ids)))
+          .then(() => undefined)
+      }),
+      e => `append session id: ${String(e)}`,
+    )
+  }
+
+  /** Drop the session context id-list cache (force a re-walk). */
+  deleteSessionIds(sid: string): ResultAsync<void, string> {
+    return ResultAsync.fromPromise(
+      this.sessionIds.delete(natsToken(sid)).then(() => undefined),
+      e => `delete session ids: ${String(e)}`,
+    )
+  }
+
   /**
    * Store the models.dev catalog JSON into the shared KV with a 30min TTL so
    * any replica can serve it and stale entries self-expire.
@@ -309,7 +363,13 @@ export function connectBus(url: string): ResultAsync<Bus, string> {
         ttl: SESSION_LEASE_MS,
         description: 'rucoder per-session run-state leases',
       })
-      return new Bus(nc, js, sessionState)
+      // Per-session LLM-context id-list cache (24h TTL).
+      const sessionIds = await js.views.kv(BUCKET_SESSION_IDS, {
+        history: 1,
+        ttl: SESSION_IDS_TTL_NS,
+        description: 'rucoder per-session context id list cache',
+      })
+      return new Bus(nc, js, sessionState, sessionIds)
     })(),
     e => `nats connect: ${String(e)}`,
   )

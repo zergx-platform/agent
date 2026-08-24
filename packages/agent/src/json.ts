@@ -74,6 +74,11 @@ export const TextPartDataSchema = z.object({
 })
 export type TextPartData = z.infer<typeof TextPartDataSchema>
 
+export const SummaryPartDataSchema = z.object({
+  summary: z.string(),
+})
+export type SummaryPartData = z.infer<typeof SummaryPartDataSchema>
+
 export const ToolResultEnvelopeSchema = z.object({
   call_id: z.string(),
   tool: z.string(),

@@ -89,6 +89,45 @@ export interface ResolvedModel {
   modelId: string
 }
 
+const CatalogModelSchema = z.object({
+  limit: z
+    .object({
+      context: z.number().positive().optional(),
+    })
+    .optional(),
+})
+
+const CatalogModelsSchema = z.record(z.string(), CatalogModelSchema)
+
+const CatalogProviderSchema = z.object({
+  models: CatalogModelsSchema.optional(),
+})
+
+const CatalogSchema = z.record(z.string(), CatalogProviderSchema)
+
+/**
+ * Resolve the model's context window (tokens) from the models.dev catalog
+ * (cached in NATS). Falls back to `fallback` when the model is unknown or
+ * the catalog is unavailable.
+ */
+export function resolveContextLimit(
+  modelsDev: unknown,
+  modelId: string,
+  fallback: number,
+): number {
+  const parsed = CatalogSchema.safeParse(modelsDev)
+  if (!parsed.success) return fallback
+  for (const p of Object.values(parsed.data)) {
+    const models = p.models
+    if (models === undefined) continue
+    const hit = models[modelId]
+    if (hit !== undefined) {
+      return hit.limit?.context ?? fallback
+    }
+  }
+  return fallback
+}
+
 /**
  * Per-request provider resolution with a client cache. A model advertised by
  * a registered provider is served by that provider; anything else falls back

@@ -1,14 +1,23 @@
+import type { PartRow } from '@rucoder-agent/schema'
 import type { ModelMessage, Tool } from 'ai'
 import { streamText } from 'ai'
+import { err, ok, type Result } from 'neverthrow'
 import type { Sql } from 'postgres'
 import { z } from 'zod'
 import type { Bus } from './bus.js'
 import { mailboxSubject } from './bus.js'
+import {
+  COMPACTION_ROLE,
+  checkpointContent,
+  foldQA,
+  splitScan,
+} from './compaction.js'
 import type { ServerConfig } from './config.js'
+import { isContextOverflowFailure } from './context-overflow.js'
 import type { Db } from './db-client.js'
 import { Presets } from './db-kv.js'
 import { Mailbox } from './db-mailbox.js'
-import { Messages } from './db-messages.js'
+import { type ChainMessage, Messages } from './db-messages.js'
 import { Parts } from './db-parts.js'
 import { Sessions } from './db-sessions.js'
 import { events, pushEvent } from './events.js'
@@ -18,10 +27,12 @@ import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
   ContentPayloadSchema,
   parse,
+  SummaryPartDataSchema,
+  TextPartDataSchema,
   type ToolResult,
   WakePayloadSchema,
 } from './json.js'
-import type { LlmRegistry } from './llm.js'
+import { type LlmRegistry, resolveContextLimit } from './llm.js'
 import { buildAiTools, discoverToolsCached } from './tools.js'
 
 export interface AgentDeps {
@@ -171,18 +182,14 @@ async function runTurnOnce(
   let unsub: (() => void) | null = null
   if (wakeRes.isOk()) {
     const sub = wakeRes.value
-    unsub = () => {
-      const un = (sub as { unsubscribe?: () => void }).unsubscribe
-      un?.call(sub)
-    }
+    unsub = () => sub.unsubscribe()
     void (async () => {
       for await (const m of sub) {
         const parsed = parse(WakePayloadSchema, m.data)
         if (parsed.isOk() && parsed.value.type === 'interrupt') ctrl.abort()
       }
     })()
-    const drain = (sub as { drain?: () => void }).drain
-    drain?.call(sub)
+    void sub.drain()
   }
 
   let messages = await loadHistory(deps, sid)
@@ -192,114 +199,154 @@ async function runTurnOnce(
 
   try {
     while (step < maxTurns && !ctrl.signal.aborted) {
-      const result = streamText({
-        model,
-        system,
-        messages,
-        tools,
-        temperature: deps.config.defaultTemperature,
-        maxOutputTokens: deps.config.defaultMaxTokens,
-        abortSignal: ctrl.signal,
-        maxRetries: 0,
-      })
+      // Build the per-step message list from the last persisted snapshot; the
+      // step may retry once after an overflow compaction.
+      let stepMessages = messages
 
-      let text = ''
-      const toolCalls: Array<{
-        id: string
-        name: string
-        input: unknown
-      }> = []
-      const toolResults: Array<{
-        id: string
-        name: string
-        result: ToolResult
-      }> = []
-      let usage: { inputTokens: number; outputTokens: number } | null = null
+      const attempt = async (): Promise<
+        | {
+            text: string
+            toolCalls: ToolCallRec[]
+            toolResults: ToolResultRec[]
+            usage: { inputTokens: number; outputTokens: number } | null
+          }
+        | 'retry'
+        | string
+      > => {
+        const result = streamText({
+          model,
+          system,
+          messages: stepMessages,
+          tools,
+          temperature: deps.config.defaultTemperature,
+          maxOutputTokens: deps.config.defaultMaxTokens,
+          abortSignal: ctrl.signal,
+          maxRetries: 0,
+        })
 
-      for await (const part of result.fullStream) {
-        switch (part.type) {
-          case 'start-step':
-            pushEvent(deps.bus, sid, 'step-start', {})
-            break
-          case 'text-start':
-            pushEvent(deps.bus, sid, 'text-start', { id: 't0' })
-            break
-          case 'text-delta':
-            text += part.text
-            pushEvent(deps.bus, sid, 'text-delta', { id: 't0', text: part.text })
-            break
-          case 'text-end':
-            pushEvent(deps.bus, sid, 'text-end', { id: 't0' })
-            break
-          case 'tool-call':
-            toolCalls.push({
-              id: part.toolCallId,
-              name: part.toolName,
-              input: part.input,
-            })
-            pushEvent(deps.bus, sid, 'tool-call', {
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              input: part.input,
-            })
-            break
-          case 'tool-result':
-            toolResults.push({
-              id: part.toolCallId,
-              name: part.toolName,
-              result: part.output,
-            })
-            pushEvent(deps.bus, sid, 'tool-result', {
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              formatted: part.output.content,
-              change_id:
-                typeof part.output.metadata?.change_id === 'string'
-                  ? part.output.metadata.change_id
-                  : undefined,
-            })
-            break
-          case 'tool-error':
-            // A tool that failed/aborted still pairs with its call id so the
-            // provider never sees a dangling tool-call.
-            toolResults.push({
-              id: part.toolCallId,
-              name: part.toolName,
-              result: { content: String(part.error), metadata: null },
-            })
-            pushEvent(deps.bus, sid, 'tool-error', {
-              toolCallId: part.toolCallId,
-              error: String(part.error),
-            })
-            break
-          case 'tool-output-denied':
-            toolResults.push({
-              id: part.toolCallId,
-              name: part.toolName,
-              result: { content: 'denied', metadata: null },
-            })
-            break
-          case 'finish-step':
-            usage = {
-              inputTokens: part.usage.inputTokens ?? 0,
-              outputTokens: part.usage.outputTokens ?? 0,
+        let text = ''
+        const toolCalls: Array<{
+          id: string
+          name: string
+          input: unknown
+        }> = []
+        const toolResults: Array<{
+          id: string
+          name: string
+          result: ToolResult
+        }> = []
+        let usage: { inputTokens: number; outputTokens: number } | null = null
+
+        for await (const part of result.fullStream) {
+          switch (part.type) {
+            case 'start-step':
+              pushEvent(deps.bus, sid, 'step-start', {})
+              break
+            case 'text-start':
+              pushEvent(deps.bus, sid, 'text-start', { id: 't0' })
+              break
+            case 'text-delta':
+              text += part.text
+              pushEvent(deps.bus, sid, 'text-delta', {
+                id: 't0',
+                text: part.text,
+              })
+              break
+            case 'text-end':
+              pushEvent(deps.bus, sid, 'text-end', { id: 't0' })
+              break
+            case 'tool-call':
+              toolCalls.push({
+                id: part.toolCallId,
+                name: part.toolName,
+                input: part.input,
+              })
+              pushEvent(deps.bus, sid, 'tool-call', {
+                toolCallId: part.toolCallId,
+                toolName: part.toolName,
+                input: part.input,
+              })
+              break
+            case 'tool-result':
+              toolResults.push({
+                id: part.toolCallId,
+                name: part.toolName,
+                result: part.output,
+              })
+              pushEvent(deps.bus, sid, 'tool-result', {
+                toolCallId: part.toolCallId,
+                toolName: part.toolName,
+                formatted: part.output.content,
+                change_id:
+                  typeof part.output.metadata?.change_id === 'string'
+                    ? part.output.metadata.change_id
+                    : undefined,
+              })
+              break
+            case 'tool-error':
+              // A tool that failed/aborted still pairs with its call id so the
+              // provider never sees a dangling tool-call.
+              toolResults.push({
+                id: part.toolCallId,
+                name: part.toolName,
+                result: { content: String(part.error), metadata: null },
+              })
+              pushEvent(deps.bus, sid, 'tool-error', {
+                toolCallId: part.toolCallId,
+                error: String(part.error),
+              })
+              break
+            case 'tool-output-denied':
+              toolResults.push({
+                id: part.toolCallId,
+                name: part.toolName,
+                result: { content: 'denied', metadata: null },
+              })
+              break
+            case 'finish-step':
+              usage = {
+                inputTokens: part.usage.inputTokens ?? 0,
+                outputTokens: part.usage.outputTokens ?? 0,
+              }
+              break
+            case 'finish':
+              finished = true
+              break
+            case 'error': {
+              const error = part.error
+              if (isContextOverflowFailure(error)) {
+                // Context overflow: compact and retry once with the trimmed
+                // context — transparent to the caller.
+                const compacted = await compactSession(deps, sid, 'overflow')
+                if (compacted.isOk() && compacted.value) {
+                  stepMessages = await loadHistory(deps, sid)
+                  return 'retry'
+                }
+              }
+              return `turn failed: ${String(error)}`
             }
-            break
-          case 'finish':
-            finished = true
-            break
-          case 'error':
-            return `turn failed: ${String((part as { error: unknown }).error)}`
-          case 'abort':
-            interrupted = true
-            break
-          default:
-            break
+            case 'abort':
+              interrupted = true
+              break
+            default:
+              break
+          }
         }
+        return { text, toolCalls, toolResults, usage }
+      }
+
+      let stepResult = await attempt()
+      if (stepResult === 'retry') {
+        // Seamless retry once after an overflow compaction.
+        stepResult = await attempt()
+      }
+      if (stepResult === 'retry' || typeof stepResult === 'string') {
+        return stepResult === 'retry' ? null : stepResult
       }
 
       // Persist this step (text + fully-paired tool calls/results) and advance
       // the chain tip before considering the next iteration.
+      const { text, toolCalls, toolResults, usage } = stepResult
       await persistStep(deps, sid, text, toolCalls, toolResults)
       if (usage !== null) {
         await Sessions.addUsage(
@@ -427,7 +474,7 @@ async function persistStep(
 
   const tipRes = await Sessions.tip(deps.db, sid)
   const prevId = tipRes.isErr() ? null : tipRes.value
-  const insert = await Messages.insert(deps.db, 'assistant', text, prevId)
+  const insert = await Messages.insert(deps.db, 'assistant', prevId)
   if (insert.isErr()) {
     console.error(`[agent] persist step failed (${sid}): ${insert.error}`)
     return
@@ -440,13 +487,11 @@ async function persistStep(
   }
   for (const tc of toolCalls) {
     const result = toolResults.find(r => r.id === tc.id)?.result
-    await Parts.insert(
-      deps.db,
-      messageId,
-      'tool',
-      seq++,
-      { id: tc.id, name: tc.name, input: tc.input },
-    )
+    await Parts.insert(deps.db, messageId, 'tool', seq++, {
+      id: tc.id,
+      name: tc.name,
+      input: tc.input,
+    })
     // Persist the canonical ToolResult (content + opaque metadata) so the
     // history rebuild and the read API can both reproduce it verbatim. The
     // metadata blob belongs to the tool server; the agent never interprets it.
@@ -462,6 +507,8 @@ async function persistStep(
     })
   }
   await Sessions.setTip(deps.db, sid, messageId)
+  // Keep the per-session context id cache in step with the write.
+  void deps.bus.appendSessionId(sid, messageId)
 }
 
 /** Fold a mailbox event into the chain as an `event` message. */
@@ -473,9 +520,11 @@ async function persistEvent(deps: AgentDeps, sid: string, payload: string) {
       : payload
   const tip = await Sessions.tip(deps.db, sid)
   const tipId = tip.isErr() ? null : tip.value
-  const insert = await Messages.insert(deps.db, 'event', text, tipId)
+  const insert = await Messages.insert(deps.db, 'event', tipId)
   if (insert.isOk()) {
+    await Parts.insert(deps.db, insert.value, 'text', 0, { text })
     await Sessions.setTip(deps.db, sid, insert.value)
+    void deps.bus.appendSessionId(sid, insert.value)
   }
 }
 
@@ -525,9 +574,11 @@ async function persistUserPrompt(
 ): Promise<void> {
   const tip = await Sessions.tip(deps.db, sid)
   const tipId = tip.isErr() ? null : tip.value
-  const insert = await Messages.insert(deps.db, 'user', text, tipId)
+  const insert = await Messages.insert(deps.db, 'user', tipId)
   if (insert.isOk()) {
+    await Parts.insert(deps.db, insert.value, 'text', 0, { text })
     await Sessions.setTip(deps.db, sid, insert.value)
+    void deps.bus.appendSessionId(sid, insert.value)
   }
 }
 
@@ -578,14 +629,157 @@ async function loadHistory(
 ): Promise<ModelMessage[]> {
   const tipRes = await Sessions.tip(deps.db, sid)
   const tipId = tipRes.isErr() ? null : tipRes.value
+  if (tipId === null) return []
+
+  // Cache hit: use the cached id list to fetch rows + parts directly.
+  const cached = await deps.bus.getSessionIds(sid)
+  if (cached.isOk() && cached.value !== null) {
+    const rows = await Messages.byIds(deps.db, cached.value)
+    const parts = await Parts.listByMessages(deps.db, cached.value)
+    if (rows.isOk() && parts.isOk()) {
+      return spliceContext(rows.value, parts.value)
+    }
+  }
+
+  // Cache miss: bounded scan from tip, then backfill.
   const chain = await Messages.chain(deps.db, tipId, 100_000, null)
   if (chain.isErr()) return []
   const ids = chain.value.map(m => m.id)
-  // COW: parts are fetched by message id (not session id) so a fork shares
-  // parent parts alongside the shared message chain.
   const parts = await Parts.listByMessages(deps.db, ids)
   if (parts.isErr()) return []
-  return rebuildHistory(chain.value, parts.value)
+
+  // Backfill the cache with the full bounded id list.
+  void deps.bus.putSessionIds(sid, ids)
+
+  return spliceContext(chain.value, parts.value)
+}
+
+/**
+ * Build the LLM context from a bounded id list + parts. The newest compaction
+ * message supplies the checkpoint summary; messages older than it are skipped.
+ * Otherwise the whole chain is rebuilt verbatim.
+ */
+function spliceContext(rows: ChainMessage[], parts: PartRow[]): ModelMessage[] {
+  const summaryByMsg = new Map<string, string>()
+  for (const p of parts) {
+    if (p.type !== 'summary') continue
+    const d = parse(SummaryPartDataSchema, p.data)
+    if (d.isOk()) summaryByMsg.set(p.message_id, d.value.summary)
+  }
+
+  // Find the newest compaction message in the list.
+  let summary: string | null = null
+  let cutoff = rows.length
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (row === undefined) continue
+    const s = summaryByMsg.get(row.id)
+    if (s !== undefined) {
+      summary = s
+      cutoff = i
+      break
+    }
+  }
+
+  const visibleRows = rows.slice(cutoff).filter(r => r.role !== COMPACTION_ROLE)
+  const history = rebuildHistory(visibleRows, parts)
+  if (summary === null) return history
+  return [{ role: 'user', content: checkpointContent(summary) }, ...history]
+}
+
+/**
+ * Fold the chain prefix into a rule-based summary (no LLM) and persist a new
+ * compaction message chained onto the tip.
+ */
+export async function compactSession(
+  deps: AgentDeps,
+  sid: string,
+  reason: 'manual' | 'overflow' = 'manual',
+): Promise<Result<boolean, string>> {
+  const tipRes = await Sessions.tip(deps.db, sid)
+  if (tipRes.isErr()) return err(tipRes.error)
+  const tipId = tipRes.value
+  if (tipId === null) return ok(false)
+
+  const sessionRes = await Sessions.get(deps.db, sid)
+  if (sessionRes.isErr()) return err(sessionRes.error)
+  const session = sessionRes.value
+  const modelId = session === null ? '' : session.model
+
+  const chain = await Messages.chain(deps.db, tipId, 100_000, null)
+  if (chain.isErr()) return err(chain.error)
+
+  const ids = chain.value.map(m => m.id)
+  const partsRes = await Parts.listByMessages(deps.db, ids)
+  if (partsRes.isErr()) return err(partsRes.error)
+  const parts = partsRes.value
+
+  // Fold entries: text per message + tool-call count.
+  const textByMsg = new Map<string, string>()
+  for (const p of parts) {
+    if (p.type !== 'text') continue
+    const d = parse(TextPartDataSchema, p.data)
+    if (d.isOk()) {
+      textByMsg.set(
+        p.message_id,
+        (textByMsg.get(p.message_id) ?? '') + d.value.text,
+      )
+    }
+  }
+  const toolCountByMsg = new Map<string, number>()
+  for (const p of parts) {
+    if (p.type === 'tool') {
+      toolCountByMsg.set(
+        p.message_id,
+        (toolCountByMsg.get(p.message_id) ?? 0) + 1,
+      )
+    }
+  }
+
+  const entries = chain.value.map(m => ({
+    id: m.id,
+    role: m.role,
+    text: textByMsg.get(m.id) ?? '',
+    toolCalls: toolCountByMsg.get(m.id) ?? 0,
+  }))
+
+  const limit = await contextLimit(deps, modelId)
+  const { folded } = splitScan(entries, limit * 0.2, limit * 0.1)
+  if (folded.length === 0) return ok(false)
+
+  const summary = foldQA(folded)
+  if (summary.trim() === '') return ok(false)
+
+  const insert = await Messages.insert(deps.db, COMPACTION_ROLE, tipId)
+  if (insert.isErr()) return err(insert.error)
+  const cmId = insert.value
+  const part = await Parts.insertSummary(deps.db, cmId, summary)
+  if (part.isErr()) return err(part.error)
+  await Sessions.setTip(deps.db, sid, cmId)
+
+  // Rewrite the cache to the new bounded context id list (with the cm).
+  const chainAfter = await Messages.chain(deps.db, cmId, 100_000, null)
+  if (chainAfter.isOk()) {
+    void deps.bus.putSessionIds(
+      sid,
+      chainAfter.value.map(m => m.id),
+    )
+  }
+
+  pushEvent(deps.bus, sid, 'compacted', { reason })
+  return ok(true)
+}
+
+async function contextLimit(deps: AgentDeps, modelId: string): Promise<number> {
+  const catalog = await deps.bus.getModelsDev()
+  if (catalog.isOk() && catalog.value !== null) {
+    return resolveContextLimit(
+      catalog.value,
+      modelId,
+      deps.config.compactionContextTokens,
+    )
+  }
+  return deps.config.compactionContextTokens
 }
 
 function sleep(ms: number): Promise<void> {

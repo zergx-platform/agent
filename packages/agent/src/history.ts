@@ -1,6 +1,11 @@
 import type { MessageRow, PartRow } from '@rucoder-agent/schema'
 import type { ModelMessage } from 'ai'
-import { parse, ToolPartDataSchema, ToolResultPartDataSchema } from './json.js'
+import {
+  parse,
+  TextPartDataSchema,
+  ToolPartDataSchema,
+  ToolResultPartDataSchema,
+} from './json.js'
 
 /**
  * Rebuild AI SDK ModelMessages from a session's persisted chain.
@@ -8,9 +13,13 @@ import { parse, ToolPartDataSchema, ToolResultPartDataSchema } from './json.js'
  * Roles map to the AI SDK contract as follows:
  * - `user`     → user message
  * - `event`    → user message (external event folded into context)
- * - `assistant` → assistant message; its `tool`/`tool_result` parts become an
- *   assistant tool-call message followed by a `role:"tool"` message carrying
- *   every result (paired by `tool_use_id`).
+ * - `assistant` → assistant message; its `text` parts become text content and
+ *   its `tool`/`tool_result` parts become an assistant tool-call message
+ *   followed by a `role:"tool"` message carrying every result (paired by
+ *   `tool_use_id`).
+ *
+ * Text is read exclusively from `parts(type=text)`; `messages` has no inline
+ * content column.
  */
 export function rebuildHistory(
   rows: MessageRow[],
@@ -26,7 +35,8 @@ export function rebuildHistory(
 
   for (const m of rows) {
     if (m.role === 'user' || m.role === 'event') {
-      if (m.content !== '') out.push({ role: 'user', content: m.content })
+      const text = textOf(byMessage.get(m.id) ?? [])
+      if (text !== '') out.push({ role: 'user', content: text })
       continue
     }
     if (m.role !== 'assistant') continue
@@ -36,8 +46,12 @@ export function rebuildHistory(
       .sort((a, b) => a.seq - b.seq)
     const uses: Array<{ id: string; name: string; input: unknown }> = []
     const results: Array<{ toolUseId: string; content: string }> = []
+    let text = ''
     for (const p of msgParts) {
-      if (p.type === 'tool') {
+      if (p.type === 'text') {
+        const d = parse(TextPartDataSchema, p.data)
+        if (d.isOk()) text += d.value.text
+      } else if (p.type === 'tool') {
         const d = parse(ToolPartDataSchema, p.data)
         if (d.isOk()) {
           uses.push({
@@ -58,7 +72,7 @@ export function rebuildHistory(
     }
 
     if (uses.length === 0 && results.length === 0) {
-      if (m.content !== '') out.push({ role: 'assistant', content: m.content })
+      if (text !== '') out.push({ role: 'assistant', content: text })
       continue
     }
 
@@ -71,7 +85,7 @@ export function rebuildHistory(
           input: unknown
         }
     > = []
-    if (m.content !== '') content.push({ type: 'text', text: m.content })
+    if (text !== '') content.push({ type: 'text', text })
     for (const u of uses) {
       content.push({
         type: 'tool-call',
@@ -94,4 +108,15 @@ export function rebuildHistory(
     }
   }
   return out
+}
+
+/** Concatenated text of a message's text parts, in seq order. */
+function textOf(msgParts: PartRow[]): string {
+  let text = ''
+  for (const p of msgParts) {
+    if (p.type !== 'text') continue
+    const d = parse(TextPartDataSchema, p.data)
+    if (d.isOk()) text += d.value.text
+  }
+  return text
 }

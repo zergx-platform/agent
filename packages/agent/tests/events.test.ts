@@ -46,8 +46,9 @@ describe('publishLifecycle', () => {
           Promise.reject('nats down'),
         ),
     } as unknown as Bus
-    expect(() => publishLifecycle(bus, 'deleted', { session_name: 'x' }))
-      .not.toThrow()
+    expect(() =>
+      publishLifecycle(bus, 'deleted', { session_name: 'x' }),
+    ).not.toThrow()
     await new Promise(r => setImmediate(r))
   })
 })

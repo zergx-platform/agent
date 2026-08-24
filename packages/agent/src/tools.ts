@@ -107,10 +107,7 @@ function discoveryTtlMs(): number {
   return Number.isNaN(n) ? 30_000 : n
 }
 
-function toolToDiscovered(
-  extId: string,
-  t: ExtensionTool,
-): DiscoveredTool {
+function toolToDiscovered(extId: string, t: ExtensionTool): DiscoveredTool {
   return {
     extId,
     name: t.name,

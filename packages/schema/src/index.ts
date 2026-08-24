@@ -47,8 +47,6 @@ export type SessionRow = z.infer<typeof SessionRowSchema>
 export const MessageRowSchema = z.object({
   id: z.string(),
   role: z.string(),
-  content: z.string(),
-  parts_json: z.string(),
   prev_id: z.string().nullable(),
   tool_name: z.string(),
   tool_call_id: z.string(),

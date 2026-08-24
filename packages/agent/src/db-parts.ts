@@ -51,4 +51,13 @@ export const Parts = {
       'list parts by messages',
     )
   },
+
+  /** Insert the compaction message's summary part. */
+  insertSummary(
+    db: Db,
+    messageId: string,
+    summary: string,
+  ): ResultAsync<string, string> {
+    return Parts.insert(db, messageId, 'summary', 0, { summary })
+  },
 }

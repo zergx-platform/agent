@@ -75,6 +75,9 @@
         streaming = false
         onrefresh()
         stopStream()
+      } else if (data.event === 'compacted') {
+        flushAssistant()
+        loadHistory()
       } else if (data.event === 'error') {
         const m = SseParamsSchema.safeParse(p)
         error = m.success && 'message' in m.data ? m.data.message : 'turn error'

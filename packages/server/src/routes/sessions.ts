@@ -1,10 +1,12 @@
 import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   type AgentDeps,
+  compactSession,
   interruptRun,
   Mailbox,
   Messages,
   mailboxSubject,
+  Parts,
   parse,
   publishLifecycle,
   runSessionTurn,
@@ -469,6 +471,25 @@ const interruptRoute = createRoute({
   },
 })
 
+const compactRoute = createRoute({
+  method: 'post',
+  path: '/sessions/{id}/compact',
+  summary: 'Compact session history (rule-based, no LLM)',
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: 'Compacted',
+      content: {
+        'application/json': { schema: z.object({ ok: z.boolean() }) },
+      },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
 const sessionOpenapi = new OpenAPIHono<AppEnv>()
   .openapi(listSessionsRoute, async c => {
     const { db } = c.get('deps')
@@ -533,8 +554,9 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     // never runs against a history missing the prompt.
     const tipRes = await Sessions.tip(deps.db, id)
     const tipId = tipRes.isErr() ? null : tipRes.value
-    const insert = await Messages.insert(deps.db, 'user', prompt, tipId)
+    const insert = await Messages.insert(deps.db, 'user', tipId)
     if (insert.isErr()) return err500(c, insert.error)
+    await Parts.insert(deps.db, insert.value, 'text', 0, { text: prompt })
     await Sessions.setTip(deps.db, id, insert.value)
 
     const enq = await Mailbox.enqueue(deps.db, id, 'user_prompt', {
@@ -649,6 +671,10 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     // physically deleted (COW). At the chain head this becomes a no-op.
     await Sessions.setTip(deps.db, sid, target.value.prev_id)
 
+    // The context id cache no longer matches the new tip; drop it so the next
+    // load re-walks the chain.
+    void deps.bus.deleteSessionIds(sid)
+
     return c.json({ ok: true, undone: true }, 200)
   })
   .openapi(readRoute, async c => c.json({ ok: true }, 200))
@@ -690,6 +716,12 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
       .then(() => undefined)
     void triggerClaim(deps, sid)
     return c.json({ interrupted: true }, 200)
+  })
+  .openapi(compactRoute, async c => {
+    const deps = c.get('deps')
+    const sid = c.req.valid('param').id
+    const r = await compactSession(deps, sid)
+    return r.isErr() ? err500(c, r.error) : c.json({ ok: r.value }, 200)
   })
 
 // SSE endpoints return a raw streaming Response, so they are registered as

@@ -45,8 +45,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     role TEXT NOT NULL,
-    content TEXT NOT NULL DEFAULT '',
-    parts_json TEXT NOT NULL DEFAULT '[]',
     prev_id TEXT,
     tool_name TEXT NOT NULL DEFAULT '',
     tool_call_id TEXT NOT NULL DEFAULT '',

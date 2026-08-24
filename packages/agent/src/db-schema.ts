@@ -25,8 +25,6 @@ export const sessions = pgTable('sessions', {
 export const messages = pgTable('messages', {
   id: text('id').primaryKey(),
   role: text('role').notNull(),
-  content: text('content').notNull().default(''),
-  partsJson: text('parts_json').notNull().default('[]'),
   prevId: text('prev_id').references((): AnyPgColumn => messages.id, {
     onDelete: 'set null',
   }),

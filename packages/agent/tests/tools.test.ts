@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest'
 import type { Bus } from '../src/bus.js'
 import {
   buildAiTools,
+  type DiscoveredTool,
   discoverToolsCached,
   invalidateDiscoveryCache,
-  type DiscoveredTool,
 } from '../src/tools.js'
 
 interface Published {
@@ -36,10 +36,9 @@ function fakeBus() {
   const bus = {
     subscribe: (subject: string) => {
       log.push(`sub:${subject}`)
-      const sub =
-        subject.startsWith('tool.result.')
-          ? makeSub(subject.slice('tool.result.'.length))
-          : makeSub('')
+      const sub = subject.startsWith('tool.result.')
+        ? makeSub(subject.slice('tool.result.'.length))
+        : makeSub('')
       return ResultAsync.fromSafePromise(Promise.resolve(sub))
     },
     publish: (subject: string, payload: unknown) => {
@@ -65,19 +64,17 @@ const tool: DiscoveredTool = {
   inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
 }
 
-const execOpts = (toolCallId: string) =>
-  ({ toolCallId, messages: [] }) as never
+const execOpts = (toolCallId: string) => ({ toolCallId, messages: [] }) as never
 
 describe('buildAiTools _session injection', () => {
   it('injects _session into tool call arguments when sessionId given', async () => {
     const { bus, published } = fakeBus()
     const tools = buildAiTools([tool], bus, 500, 'acme--api--main')
-    const result = await tools.read.execute(
-      { path: 'x' },
-      execOpts('c1'),
-    )
+    const result = await tools.read.execute({ path: 'x' }, execOpts('c1'))
     expect(result).toEqual({ content: 'ok', metadata: null })
-    const call = published.find(p => p.subject === 'tool.call.repo-extension.read')
+    const call = published.find(
+      p => p.subject === 'tool.call.repo-extension.read',
+    )
     expect(call?.payload).toEqual({
       call_id: 'c1',
       arguments: { path: 'x', _session: 'acme--api--main' },
@@ -88,7 +85,9 @@ describe('buildAiTools _session injection', () => {
     const { bus, published } = fakeBus()
     const tools = buildAiTools([tool], bus, 500)
     await tools.read.execute({ path: 'x' }, execOpts('c2'))
-    const call = published.find(p => p.subject === 'tool.call.repo-extension.read')
+    const call = published.find(
+      p => p.subject === 'tool.call.repo-extension.read',
+    )
     expect(call?.payload).toEqual({
       call_id: 'c2',
       arguments: { path: 'x' },

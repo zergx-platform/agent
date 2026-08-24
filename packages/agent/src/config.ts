@@ -20,6 +20,8 @@ export interface ServerConfig {
   defaultMaxTokens: number
   memoryUrl: string
   repoManagerUrl: string
+  /** Model context window (estimated tokens). Compaction budgets are fractions of it. */
+  compactionContextTokens: number
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -60,6 +62,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     repoManagerUrl: or(
       'RUCODER_REPO_MANAGER_URL',
       'http://rucoder-repo-manager.develop.svc.cluster.local:80',
+    ),
+    compactionContextTokens: Number.parseInt(
+      or('RUCODER_COMPACTION_CONTEXT_TOKENS', '200000'),
+      10,
     ),
   }
 }

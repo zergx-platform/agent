@@ -33,6 +33,10 @@ export const events = {
     params: { tool_use_id: toolUseId, content },
   }),
   error: (message: string) => ({ event: 'error', params: { message } }),
+  compacted: (reason: 'manual' | 'overflow') => ({
+    event: 'compacted',
+    params: { reason },
+  }),
   turnComplete: (reason: string) => ({
     event: 'turn-complete',
     params: { reason },
@@ -40,11 +44,7 @@ export const events = {
 }
 
 /** Lifecycle event kinds published on `notify.lifecycle.session.{kind}`. */
-export type LifecycleEvent =
-  | 'created'
-  | 'forked'
-  | 'renamed'
-  | 'deleted'
+export type LifecycleEvent = 'created' | 'forked' | 'renamed' | 'deleted'
 
 /**
  * Trigger hook: after a session lifecycle action commits, notify the durable
