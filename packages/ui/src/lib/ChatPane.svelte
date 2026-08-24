@@ -3,7 +3,7 @@
   import { api, type Session } from '$lib/api'
   import { parse, SSEEnvelopeSchema, SseParamsSchema } from '@rucoder-agent/schema'
   import { markdown } from '$lib/markdown'
-  import { Send, Square, GitFork, Mailbox, FilePenLine, ChevronDown, Undo2 } from '@lucide/svelte'
+  import { Send, Square, GitFork, Mailbox, FilePenLine, ChevronDown, Undo2, Layers } from '@lucide/svelte'
   import MailboxPanel from '$lib/MailboxPanel.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
@@ -28,6 +28,15 @@
 
   let es: EventSource | null = null
 
+  function compact() {
+    void api.compact(active.name).match(
+      () => loadHistory(),
+      e => {
+        error = e
+      },
+    )
+  }
+
   function loadHistory() {
     void api.listMessages(active.name).match(
       rows => {
@@ -40,7 +49,6 @@
       },
     )
   }
-
   function loadModels() {
     void api.listModels().match(
       m => {
@@ -248,31 +256,55 @@
     >
       <FilePenLine class="size-4" />
     </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Compact history"
+      title="Compact history"
+      onclick={compact}
+    >
+      <Layers class="size-4" />
+    </Button>
   </header>
 
   <div class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4" use:scrollToBottom={messages.length + (assistantBuf.length > 0 ? 1 : 0)}>
     {#each messages as m (m.id)}
-      <div class="flex flex-col {m.role === 'user' ? 'items-end' : 'items-start'}">
-        <div
-          class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap border {m.role === 'user' ? 'bg-primary/10 border-border' : 'bg-muted border'}"
-        >
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          {#if m.role === 'assistant'}
-            {@html markdown(m.content)}
-          {:else}
-            {m.content}
-          {/if}
+      {#if m.role === 'compaction'}
+        <div class="flex items-center gap-3 text-xs text-muted-foreground">
+          <div class="h-px flex-1 bg-border"></div>
+          <Layers class="size-3.5" />
+          <span>历史已压缩</span>
+          <div class="h-px flex-1 bg-border"></div>
         </div>
-        <Button
-          variant="ghost"
-          class="h-auto w-auto p-1 mt-0.5 text-muted-foreground hover:text-foreground"
-          aria-label="Undo"
-          title="Undo"
-          onclick={() => undo(m.id)}
-        >
-          <Undo2 class="size-3.5" />
-        </Button>
-      </div>
+        <details class="rounded-lg border bg-muted/40 px-3 py-2 text-xs">
+          <summary class="cursor-pointer select-none text-muted-foreground">
+            查看压缩摘要
+          </summary>
+          <pre class="mt-2 whitespace-pre-wrap font-sans text-foreground">{m.content}</pre>
+        </details>
+      {:else}
+        <div class="flex flex-col {m.role === 'user' ? 'items-end' : 'items-start'}">
+          <div
+            class="max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap border {m.role === 'user' ? 'bg-primary/10 border-border' : 'bg-muted border'}"
+          >
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            {#if m.role === 'assistant'}
+              {@html markdown(m.content)}
+            {:else}
+              {m.content}
+            {/if}
+          </div>
+          <Button
+            variant="ghost"
+            class="h-auto w-auto p-1 mt-0.5 text-muted-foreground hover:text-foreground"
+            aria-label="Undo"
+            title="Undo"
+            onclick={() => undo(m.id)}
+          >
+            <Undo2 class="size-3.5" />
+          </Button>
+        </div>
+      {/if}
     {/each}
 
     {#if assistantBuf !== ''}

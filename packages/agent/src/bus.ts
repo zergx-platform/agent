@@ -72,8 +72,8 @@ const STREAMS: Array<{ name: string; subjects: string[] }> = [
 
 const DAY_NS = 24 * 3600 * 1_000_000_000
 
-/** TTL for the session id-list cache (24h). */
-export const SESSION_IDS_TTL_NS = DAY_NS
+/** TTL (millis) for the session id-list cache (24h). */
+export const SESSION_IDS_TTL_MS = 24 * 3600 * 1000
 
 /** Lease TTL for per-session run-state keys (ms). */
 const SESSION_LEASE_MS = 30_000
@@ -366,7 +366,7 @@ export function connectBus(url: string): ResultAsync<Bus, string> {
       // Per-session LLM-context id-list cache (24h TTL).
       const sessionIds = await js.views.kv(BUCKET_SESSION_IDS, {
         history: 1,
-        ttl: SESSION_IDS_TTL_NS,
+        ttl: SESSION_IDS_TTL_MS,
         description: 'rucoder per-session context id list cache',
       })
       return new Bus(nc, js, sessionState, sessionIds)

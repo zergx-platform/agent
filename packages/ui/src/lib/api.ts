@@ -100,6 +100,13 @@ export const api = {
       'list messages',
     ).map(r => r.messages),
 
+  compact: (sid: string) =>
+    request(
+      () => client.sessions[':id'].compact.$post({ param: { id: sid } }),
+      z.object({ ok: z.boolean() }),
+      'compact session',
+    ),
+
   prompt: (sid: string, prompt: string) =>
     request(
       () =>

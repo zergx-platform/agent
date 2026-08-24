@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { Db } from './db-client.js'
 import { nowStr, q, uuid } from './db-client.js'
 import { messages, parts } from './db-schema.js'
-import { parse, TextPartDataSchema } from './json.js'
+import { parse, SummaryPartDataSchema, TextPartDataSchema } from './json.js'
 
 const toRow = (r: typeof messages.$inferSelect): MessageRow => ({
   id: r.id,
@@ -17,7 +17,8 @@ const toRow = (r: typeof messages.$inferSelect): MessageRow => ({
 })
 
 export interface ChainMessage extends MessageRow {
-  /** Pure-text view, derived from parts(type=text) for the read API/UI. */
+  /** Pure-text view: text parts for normal messages, the summary for a
+   *  compaction message (used by the read API/UI). */
   content: string
 }
 
@@ -176,10 +177,15 @@ async function textContentByMessages(
     .where(inArray(parts.messageId, ids))
     .orderBy(parts.messageId, parts.seq)
   for (const p of rows) {
-    if (p.type !== 'text') continue
-    const d = parse(TextPartDataSchema, p.data)
-    if (!d.isOk()) continue
-    out.set(p.messageId, (out.get(p.messageId) ?? '') + d.value.text)
+    if (p.type === 'text') {
+      const d = parse(TextPartDataSchema, p.data)
+      if (d.isOk()) {
+        out.set(p.messageId, (out.get(p.messageId) ?? '') + d.value.text)
+      }
+    } else if (p.type === 'summary') {
+      const d = parse(SummaryPartDataSchema, p.data)
+      if (d.isOk()) out.set(p.messageId, d.value.summary)
+    }
   }
   return out
 }
