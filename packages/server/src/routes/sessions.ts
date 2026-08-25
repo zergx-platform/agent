@@ -546,6 +546,10 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     await Parts.insert(deps.db, insert.value, 'text', 0, { text: prompt })
     await Sessions.setTip(deps.db, id, insert.value)
 
+    // Keep the cached context id list in sync so the turn's loadHistory does
+    // not serve a stale cache missing this just-persisted user message.
+    void deps.bus.appendSessionId(id, insert.value)
+
     // Deliver the turn request over the durable mailbox queue. The agent's
     // consumer persists it into PG and runs the turn; the HTTP route never
     // writes the mailbox table directly.
