@@ -108,7 +108,7 @@ export async function handleMailboxMessage(
         `[agent] mailbox: session ${env.session_name} missing — discarding`,
       )
     } else {
-      console.warn(`[agent] mailbox: enqueue failed — redelivering`)
+      console.warn(`[agent] mailbox: enqueue failed — ${enq.error} — redelivering`)
       throw enq.error
     }
     return
