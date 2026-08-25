@@ -82,9 +82,9 @@ export function watchMailboxWake(deps: AgentDeps): () => void {
 /**
  * Persist one durable mailbox message into PG, then wake the session's turn
  * loop. Redelivery-safe: the envelope id is the PG row id, so a re-delivered
- * message inserts no duplicate row.
+ * message inserts no duplicate row. Exported for tests.
  */
-async function handleMailboxMessage(
+export async function handleMailboxMessage(
   deps: AgentDeps,
   m: import('nats').JsMsg,
 ): Promise<void> {
@@ -147,18 +147,23 @@ export async function runSessionTurn(
       // Another replica is running this session; it will drain our message.
       return
     }
-    const revision = claimed.value
+    let revision = claimed.value
 
     // Renew the lease on a timer (TTL/3) so a long-running turn — the drain
     // loop awaits handleItem for minutes at a time — cannot be re-claimed by
-    // a competing replica after the 30s TTL lapses.
+    // a competing replica after the 30s TTL lapses. Each successful renew
+    // returns the NEW revision, which must be fed into the next renew; using
+    // the original revision forever would fail every update after the first.
     const renewTimer = setInterval(() => {
-      void deps.bus.renewSession(sid, revision).then(ok => {
-        if (ok.isOk() && ok.value === false) {
+      void deps.bus.renewSession(sid, revision).then(res => {
+        if (res.isErr()) return
+        if (res.value === null) {
           console.warn(
             `[agent] lease lost for ${sid}: another replica may be running it`,
           )
+          return
         }
+        revision = res.value
       })
     }, SESSION_LEASE_MS / 3)
 
@@ -495,10 +500,14 @@ async function prepare(
       : discovered.filter(t => whitelist.has(t.name))
   const tools = buildAiTools(active, deps.bus, deps.config.toolTimeoutMs, sid)
 
+  // Session-level settings (PATCH /sessions/{id}/settings) override the
+  // preset; the preset overrides the config default.
   const systemPrompt =
-    presetRow !== null && presetRow.system_prompt !== ''
-      ? presetRow.system_prompt
-      : 'You are a helpful assistant.'
+    session.system_prompt !== ''
+      ? session.system_prompt
+      : presetRow !== null && presetRow.system_prompt !== ''
+        ? presetRow.system_prompt
+        : 'You are a helpful assistant.'
   const env = [
     '<env>',
     `  Today's date: ${new Date().toISOString().slice(0, 10)}`,
@@ -511,9 +520,11 @@ async function prepare(
   const renderedPrompt = await renderTemplate(systemPrompt, deps.bus)
 
   const maxTurns =
-    presetRow !== null && presetRow.max_turns > 0
-      ? presetRow.max_turns
-      : deps.config.defaultMaxTurns
+    session.max_turns > 0
+      ? session.max_turns
+      : presetRow !== null && presetRow.max_turns > 0
+        ? presetRow.max_turns
+        : deps.config.defaultMaxTurns
 
   const resolved = await deps.llm.resolve(deps.db, session.model)
   if (resolved.isErr()) return resolved.error
@@ -737,7 +748,10 @@ async function loadHistory(
  * is represented by the checkpoint. With no compaction message the whole
  * chain is rebuilt verbatim.
  */
-function spliceContext(rows: ChainMessage[], parts: PartRow[]): ModelMessage[] {
+export function spliceContext(
+  rows: ChainMessage[],
+  parts: PartRow[],
+): ModelMessage[] {
   interface Cm {
     summary: string
     tailFrom: string | null

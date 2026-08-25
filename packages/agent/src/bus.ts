@@ -290,24 +290,31 @@ export class Bus {
    * Extend the per-session lease TTL (a turn can outlive the 30s TTL). Uses
    * a compare-and-swap `update(key, value, revision)`: the call fails if the
    * key no longer exists or a competing holder changed its revision, so a
-   * stale holder can never resurrect a lease it lost.
+   * stale holder can never resurrect a lease it lost. Returns the NEW
+   * revision on success (each successful update advances it) or `null` when
+   * the lease was lost — the caller must use the returned revision for the
+   * next renew.
    */
-  renewSession(sid: string, revision: number): ResultAsync<boolean, string> {
+  renewSession(
+    sid: string,
+    revision: number,
+  ): ResultAsync<number | null, string> {
     return ResultAsync.fromPromise(
       this.sessionState
         .update(natsToken(sid), Buffer.from('running'), revision)
-        .then(() => true),
+        .then(next => next),
       e => (e instanceof Error ? e : new Error(String(e))),
     ).orElse(err => {
       const code = (err as { api_error?: { err_code?: number } }).api_error
         ?.err_code
       if (code === 10071) {
-        return ResultAsync.fromSafePromise<boolean, string>(
-          Promise.resolve(false),
+        return ResultAsync.fromSafePromise<number | null, string>(
+          Promise.resolve(null),
         )
       }
-      return ResultAsync.fromPromise<boolean, string>(Promise.reject(err), e =>
-        String(e),
+      return ResultAsync.fromPromise<number | null, string>(
+        Promise.reject(err),
+        e => String(e),
       )
     })
   }

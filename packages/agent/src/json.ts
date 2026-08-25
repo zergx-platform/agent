@@ -92,7 +92,7 @@ export type TextPartData = z.infer<typeof TextPartDataSchema>
 export const SummaryPartDataSchema = z.object({
   summary: z.string(),
   /** First message id of the verbatim tail kept after this checkpoint. */
-  tail_from: z.string().optional(),
+  tail_from: z.string().nullish(),
 })
 export type SummaryPartData = z.infer<typeof SummaryPartDataSchema>
 
