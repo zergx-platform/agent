@@ -220,7 +220,15 @@ export function buildAiTools(
 ): Record<string, Tool<Record<string, unknown>, ToolResult>> {
   const tools: Record<string, Tool<Record<string, unknown>, ToolResult>> = {}
   for (const t of discovered) {
-    tools[t.name] = {
+    // Two extensions may expose the same bare tool name; the AI SDK tool set
+    // is keyed by name, so a collision would silently drop one. Namespace the
+    // AI-tool key by extension id while keeping the wire tool name intact.
+    const aiName =
+      discovered.filter(d => d.name === t.name).length > 1
+        ? `${t.extId}.${t.name}`
+        : t.name
+    if (tools[aiName] !== undefined) continue
+    tools[aiName] = {
       description: t.description,
       inputSchema: jsonSchema(t.inputSchema),
       execute: async (args, { toolCallId }) => {
