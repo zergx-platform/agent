@@ -358,9 +358,6 @@ async function runTurnOnce(
               })
               break
             case 'tool-result':
-              console.log(
-                `[agent-debug] tool-result call=${part.toolCallId} preliminary=${part.preliminary} content=${JSON.stringify((part.output as { content?: string })?.content ?? '').slice(0, 60)}`,
-              )
               if (part.preliminary === true) {
                 // Streamed progress: shown to the UI, never fed to the model.
                 pushEvent(deps.bus, sid, 'tool-delta', {

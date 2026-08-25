@@ -25,8 +25,8 @@ function fakeStreamBus(messages: Array<Record<string, unknown>>) {
 describe('invokeToolStreamViaBus', () => {
   it('yields one ToolResult per delta, then the final', async () => {
     const bus = fakeStreamBus([
-      { call_id: 'c1', tool: 'run', content: 'A\n', stream: 'delta', metadata: null },
-      { call_id: 'c1', tool: 'run', content: 'B\n', stream: 'delta', metadata: null },
+      { call_id: 'c1', tool: 'run', content: 'A\n', stream: 'delta' },
+      { call_id: 'c1', tool: 'run', content: 'B\n', stream: 'delta' },
       { call_id: 'c1', tool: 'run', content: 'done', stream: 'final', metadata: null },
     ])
     const out: string[] = []
