@@ -155,16 +155,21 @@ export async function runSessionTurn(
     // returns the NEW revision, which must be fed into the next renew; using
     // the original revision forever would fail every update after the first.
     const renewTimer = setInterval(() => {
-      void deps.bus.renewSession(sid, revision).then(res => {
-        if (res.isErr()) return
-        if (res.value === null) {
-          console.warn(
-            `[agent] lease lost for ${sid}: another replica may be running it`,
-          )
-          return
-        }
-        revision = res.value
-      })
+      void deps.bus.renewSession(sid, revision).then(
+        res => {
+          if (res.isErr()) return
+          if (res.value === null) {
+            console.warn(
+              `[agent] lease lost for ${sid}: another replica may be running it`,
+            )
+            return
+          }
+          revision = res.value
+        },
+        err => {
+          console.warn(`[agent] renew session ${sid} failed: ${String(err)}`)
+        },
+      )
     }, SESSION_LEASE_MS / 3)
 
     try {
@@ -266,9 +271,13 @@ async function runTurnOnce(
     const sub = wakeRes.value
     unsub = () => sub.unsubscribe()
     void (async () => {
-      for await (const m of sub) {
-        const parsed = parse(WakePayloadSchema, m.data)
-        if (parsed.isOk() && parsed.value.type === 'interrupt') ctrl.abort()
+      try {
+        for await (const m of sub) {
+          const parsed = parse(WakePayloadSchema, m.data)
+          if (parsed.isOk() && parsed.value.type === 'interrupt') ctrl.abort()
+        }
+      } catch (err) {
+        console.warn(`[agent] wake watcher stopped (${sid}): ${String(err)}`)
       }
     })()
   }

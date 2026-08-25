@@ -166,21 +166,29 @@ function firstResult(
       reject(new Error(`tool '${name}' timed out`))
     }, timeoutMs)
     void (async () => {
-      for await (const m of sub) {
-        if (settled) return
-        const parsed = parse(ToolResultEnvelopeSchema, m.data)
-        if (parsed.isOk()) {
+      try {
+        for await (const m of sub) {
+          if (settled) return
+          const parsed = parse(ToolResultEnvelopeSchema, m.data)
+          if (parsed.isOk()) {
+            settled = true
+            clearTimeout(timer)
+            sub.unsubscribe()
+            resolve(parsed.value)
+            return
+          }
+        }
+        if (!settled) {
           settled = true
           clearTimeout(timer)
-          sub.unsubscribe()
-          resolve(parsed.value)
-          return
+          reject(new Error(`tool '${name}' result stream closed`))
         }
-      }
-      if (!settled) {
-        settled = true
-        clearTimeout(timer)
-        reject(new Error(`tool '${name}' result stream closed`))
+      } catch (err) {
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          reject(err instanceof Error ? err : new Error(String(err)))
+        }
       }
     })()
   })
