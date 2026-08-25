@@ -4,6 +4,7 @@ import { streamText } from 'ai'
 import { err, ok, type Result } from 'neverthrow'
 import type { Sql } from 'postgres'
 import { z } from 'zod'
+import { Agent as AbepAgent } from 'abep-sdk'
 import type { Bus } from './bus.js'
 import { mailboxSubject, SESSION_LEASE_MS } from './bus.js'
 import {
@@ -58,24 +59,24 @@ const DRAIN_GRACE_MS = 200
  */
 export function watchMailboxWake(deps: AgentDeps): () => void {
   let stopped = false
-  let stop: (() => void) | null = null
-  void deps.bus.consumeMailbox().match(
-    async sub => {
-      stop = () => {
-        void sub.unsubscribe()
-      }
-      for await (const m of sub) {
-        if (stopped) break
-        void handleMailboxMessage(deps, m)
-      }
-    },
-    err => {
-      console.error(`[agent] mailbox consumer failed: ${err}`)
-    },
-  )
+  let stop: (() => void | Promise<void>) | null = null
+  const agent = new AbepAgent(deps.bus)
+  void agent
+    .consumeMailbox(async msg => {
+      if (stopped) return
+      await handleMailboxMessage(deps, msg)
+    })
+    .then(
+      shutdown => {
+        stop = shutdown
+      },
+      err => {
+        console.error(`[agent] mailbox consumer failed: ${String(err)}`)
+      },
+    )
   return () => {
     stopped = true
-    stop?.()
+    void stop?.()
   }
 }
 
@@ -86,15 +87,14 @@ export function watchMailboxWake(deps: AgentDeps): () => void {
  */
 export async function handleMailboxMessage(
   deps: AgentDeps,
-  m: import('nats').JsMsg,
+  msg: { id: string; session_name: string; type: string; payload?: unknown },
 ): Promise<void> {
-  const parsed = parse(MailboxEnvelopeSchema, m.data)
-  if (parsed.isErr()) {
-    console.warn(`[agent] mailbox: bad envelope — discarding`)
-    m.term()
-    return
+  const env = {
+    id: msg.id,
+    session_name: msg.session_name,
+    type: msg.type,
+    payload: msg.payload,
   }
-  const env = parsed.value
 
   const enq = await Mailbox.enqueueIdempotent(
     deps.db,
@@ -105,19 +105,15 @@ export async function handleMailboxMessage(
   )
   if (enq.isErr()) {
     if (isForeignKeyViolation(enq.error)) {
-      // The envelope references a session that no longer exists (deleted, or
-      // a fresh DB after a reset). Retrying can never succeed: drop it.
       console.warn(
         `[agent] mailbox: session ${env.session_name} missing — discarding`,
       )
-      m.term()
     } else {
       console.warn(`[agent] mailbox: enqueue failed — redelivering`)
-      m.nak(5000)
+      throw enq.error
     }
     return
   }
-  m.ack()
 
   void runSessionTurn(deps, env.session_name).then(
     () => {},
@@ -138,16 +134,18 @@ export async function runSessionTurn(
   sid: string,
 ): Promise<void> {
   for (;;) {
-    const claimed = await deps.bus.claimSession(sid)
-    if (claimed.isErr()) {
-      console.warn(`[agent] claim error (${sid}): ${claimed.error}`)
+    const agent = new AbepAgent(deps.bus)
+    let revision: number | null
+    try {
+      revision = await agent.claimSession(sid)
+    } catch (e) {
+      console.warn(`[agent] claim error (${sid}): ${String(e)}`)
       return
     }
-    if (claimed.value === null) {
+    if (revision === null) {
       // Another replica is running this session; it will drain our message.
       return
     }
-    let revision = claimed.value
 
     // Renew the lease on a timer (TTL/3) so a long-running turn — the drain
     // loop awaits handleItem for minutes at a time — cannot be re-claimed by
@@ -155,16 +153,15 @@ export async function runSessionTurn(
     // returns the NEW revision, which must be fed into the next renew; using
     // the original revision forever would fail every update after the first.
     const renewTimer = setInterval(() => {
-      void deps.bus.renewSession(sid, revision).then(
-        res => {
-          if (res.isErr()) return
-          if (res.value === null) {
+      void agent.renewSession(sid, revision as number).then(
+        next => {
+          if (next === null) {
             console.warn(
               `[agent] lease lost for ${sid}: another replica may be running it`,
             )
             return
           }
-          revision = res.value
+          revision = next
         },
         err => {
           console.warn(`[agent] renew session ${sid} failed: ${String(err)}`)
@@ -187,7 +184,7 @@ export async function runSessionTurn(
       }
     } finally {
       clearInterval(renewTimer)
-      await deps.bus.releaseSession(sid)
+      await agent.releaseSession(sid)
     }
 
     // Released: confirm nothing arrived during the release window. If it did,
@@ -265,15 +262,14 @@ async function runTurnOnce(
   // in the mailbox), so whichever replica is running the session aborts
   // immediately; an event envelope also carries the same shape but is ignored
   // here (only `interrupt` acts as an abort).
-  const wakeRes = await deps.bus.subscribe(mailboxSubject(sid))
-  let unsub: (() => void) | null = null
-  if (wakeRes.isOk()) {
-    const sub = wakeRes.value
-    unsub = () => sub.unsubscribe()
+  const sub = await deps.bus.subscribe(mailboxSubject(sid)).catch(() => null)
+  let unsub: (() => void | Promise<void>) | null = null
+  if (sub !== null) {
+    unsub = () => sub.close()
     void (async () => {
       try {
         for await (const m of sub) {
-          const parsed = parse(WakePayloadSchema, m.data)
+          const parsed = parse(WakePayloadSchema, JSON.stringify(m.payload))
           if (parsed.isOk() && parsed.value.type === 'interrupt') ctrl.abort()
         }
       } catch (err) {
@@ -613,7 +609,7 @@ async function persistStep(
   }
   await Sessions.setTip(deps.db, sid, messageId)
   // Keep the per-session context id cache in step with the write.
-  void deps.bus.appendSessionId(sid, messageId)
+  void new AbepAgent(deps.bus).appendSessionId(sid, messageId)
 }
 
 /** Fold a mailbox event into the chain as an `event` message. */
@@ -629,7 +625,7 @@ async function persistEvent(deps: AgentDeps, sid: string, payload: string) {
   if (insert.isOk()) {
     await Parts.insert(deps.db, insert.value, 'text', 0, { text })
     await Sessions.setTip(deps.db, sid, insert.value)
-    void deps.bus.appendSessionId(sid, insert.value)
+    void new AbepAgent(deps.bus).appendSessionId(sid, insert.value)
   }
 }
 
@@ -683,7 +679,7 @@ async function persistUserPrompt(
   if (insert.isOk()) {
     await Parts.insert(deps.db, insert.value, 'text', 0, { text })
     await Sessions.setTip(deps.db, sid, insert.value)
-    void deps.bus.appendSessionId(sid, insert.value)
+    void new AbepAgent(deps.bus).appendSessionId(sid, insert.value)
   }
 }
 
@@ -737,10 +733,10 @@ async function loadHistory(
   if (tipId === null) return []
 
   // Cache hit: use the cached id list to fetch rows + parts directly.
-  const cached = await deps.bus.getSessionIds(sid)
-  if (cached.isOk() && cached.value !== null) {
-    const rows = await Messages.byIds(deps.db, cached.value)
-    const parts = await Parts.listByMessages(deps.db, cached.value)
+  const cached = await new AbepAgent(deps.bus).getSessionIds(sid)
+  if (cached !== null) {
+    const rows = await Messages.byIds(deps.db, cached)
+    const parts = await Parts.listByMessages(deps.db, cached)
     if (rows.isOk() && parts.isOk()) {
       return spliceContext(rows.value, parts.value)
     }
@@ -754,7 +750,7 @@ async function loadHistory(
   if (parts.isErr()) return []
 
   // Backfill the cache with the full bounded id list.
-  void deps.bus.putSessionIds(sid, ids)
+  void new AbepAgent(deps.bus).putSessionIds(sid, ids)
 
   return spliceContext(chain.value, parts.value)
 }
@@ -898,10 +894,7 @@ export async function compactSession(
   // Rewrite the cache to the new bounded context id list (with the cm).
   const chainAfter = await Messages.chain(deps.db, cmId, 100_000, null)
   if (chainAfter.isOk()) {
-    void deps.bus.putSessionIds(
-      sid,
-      chainAfter.value.map(m => m.id),
-    )
+    void new AbepAgent(deps.bus).putSessionIds(sid, chainAfter.value.map(m => m.id))
   }
 
   pushEvent(deps.bus, sid, 'compacted', { reason })
@@ -909,10 +902,10 @@ export async function compactSession(
 }
 
 async function contextLimit(deps: AgentDeps, modelId: string): Promise<number> {
-  const catalog = await deps.bus.getModelsDev()
-  if (catalog.isOk() && catalog.value !== null) {
+  const catalog = await new AbepAgent(deps.bus).getModelsDev()
+  if (catalog !== null && catalog !== undefined) {
     return resolveContextLimit(
-      catalog.value,
+      catalog,
       modelId,
       deps.config.compactionContextTokens,
     )

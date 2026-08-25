@@ -7,7 +7,7 @@ export interface AgentEventDeps {
 }
 
 /**
- * Publish one SSE event for a session onto the durable JetStream subject.
+ * Publish one SSE event for a session onto the durable stream.
  * Every event carries a unique `eid` so replay/live consumers can dedup.
  */
 export function pushEvent(
@@ -16,16 +16,11 @@ export function pushEvent(
   event: string,
   params: unknown = {},
 ): void {
-  bus
-    .publishStream(sseSubject(sid), { event, params, eid: randomUUID() })
-    .mapErr(err => {
-      console.warn(`[agent] sse publish failed (${sid}): ${err}`)
-      return err
+  void bus
+    .inboxPublish(sseSubject(sid), { event, params, eid: randomUUID() }, { id: randomUUID() })
+    .catch(err => {
+      console.warn(`[agent] sse publish failed (${sid}): ${String(err)}`)
     })
-    .then(
-      () => undefined,
-      () => undefined,
-    )
 }
 
 export const events = {
@@ -60,17 +55,12 @@ export function publishLifecycle(
   event: LifecycleEvent,
   payload: Record<string, unknown>,
 ): void {
-  bus
-    .publishStream(`notify.lifecycle.session.${event}`, {
-      event,
+  void bus
+    .inboxPublish(`notify.lifecycle.session.${event}`, {
+      kind: event,
       ...payload,
+    }, { id: randomUUID() })
+    .catch(err => {
+      console.warn(`[agent] lifecycle publish failed (${event}): ${String(err)}`)
     })
-    .mapErr(err => {
-      console.warn(`[agent] lifecycle publish failed (${event}): ${err}`)
-      return err
-    })
-    .then(
-      () => undefined,
-      () => undefined,
-    )
 }

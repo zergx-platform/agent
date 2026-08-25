@@ -1,33 +1,27 @@
-import { ok, okAsync } from 'neverthrow'
+import { ok } from 'neverthrow'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Bus } from '../src/bus.js'
 import { Mailbox } from '../src/db-mailbox.js'
 import type { AgentDeps } from '../src/session-agent.js'
 import { runSessionTurn } from '../src/session-agent.js'
 
-type DrainItem = { msg_type: string; payload: string }
-
 function fakeBus(overrides: {
-  claim: (sid: string) => ReturnType<Bus['claimSession']>
-  release?: (sid: string) => ReturnType<Bus['releaseSession']>
+  claim: (sid: string) => Promise<number | null>
+  release?: (sid: string) => Promise<void>
 }) {
   return {
-    claimSession: overrides.claim,
-    renewSession: () => ok(1),
-    releaseSession:
-      overrides.release ??
-      (() => {
-        void 0
-        return ok(undefined)
-      }),
-    isSessionRunning: () => ok(false),
-    getSessionIds: () => ok(null),
-    putSessionIds: () => ok(undefined),
-    appendSessionId: () => ok(undefined),
-    deleteSessionIds: () => ok(undefined),
-    publishStream: () => okAsync(undefined),
-    subscribe: () => ok({}),
-    publish: () => ok(undefined),
+    kvCreate: (_b: string, _k: string, _v: string, _t: number) =>
+      Promise.resolve(overrides.claim('')),
+    kvCas: () => Promise.resolve(1),
+    kvDelete: () =>
+      Promise.resolve(overrides.release?.('') ?? undefined),
+    kvGet: () => Promise.resolve(null),
+    kvPut: () => Promise.resolve(),
+    objectPut: () => Promise.resolve(),
+    objectGet: () => Promise.resolve(new Uint8Array()),
+    inboxPublish: () => Promise.resolve(),
+    publish: () => Promise.resolve(),
+    subscribe: () => Promise.resolve({ close: () => {}, [Symbol.asyncIterator]: () => ({ next: async () => ({ done: true as const, value: undefined }) }) }),
   } as unknown as Bus
 }
 
@@ -40,7 +34,7 @@ describe('runSessionTurn', () => {
     const drain = vi
       .spyOn(Mailbox, 'drainOne')
       .mockResolvedValue(ok(null) as never)
-    const bus = fakeBus({ claim: () => ok(null) })
+    const bus = fakeBus({ claim: () => Promise.resolve(null) })
     await runSessionTurn(
       { db: {}, bus, config: {}, llm: {} } as AgentDeps,
       'a:b:main',
@@ -52,10 +46,10 @@ describe('runSessionTurn', () => {
     let released = false
     vi.spyOn(Mailbox, 'drainOne').mockResolvedValue(ok(null) as never)
     const bus = fakeBus({
-      claim: () => ok(5),
+      claim: () => Promise.resolve(5),
       release: () => {
         released = true
-        return ok(undefined)
+        return Promise.resolve()
       },
     })
     await runSessionTurn(
@@ -69,10 +63,10 @@ describe('runSessionTurn', () => {
     let released = false
     vi.spyOn(Mailbox, 'drainOne').mockRejectedValue(new Error('db down'))
     const bus = fakeBus({
-      claim: () => ok(5),
+      claim: () => Promise.resolve(5),
       release: () => {
         released = true
-        return ok(undefined)
+        return Promise.resolve()
       },
     })
     await expect(

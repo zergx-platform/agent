@@ -1,4 +1,3 @@
-import { ResultAsync } from 'neverthrow'
 import { describe, expect, it } from 'vitest'
 import type { Bus } from '../src/bus.js'
 import { invokeToolStreamViaBus } from '../src/tools.js'
@@ -8,17 +7,16 @@ function fakeStreamBus(messages: Array<Record<string, unknown>>) {
   const sub = {
     async *[Symbol.asyncIterator]() {
       while (i < messages.length) {
-        yield { data: Buffer.from(JSON.stringify(messages[i])) }
+        yield { payload: messages[i] }
         i++
       }
     },
-    unsubscribe: () => {},
+    close: () => {},
   }
   return {
-    subscribe: () => ResultAsync.fromSafePromise(Promise.resolve(sub)),
-    publish: () => ResultAsync.fromSafePromise(Promise.resolve(undefined)),
-    getObject: (name: string) =>
-      ResultAsync.fromSafePromise(Promise.resolve(Buffer.from(''))),
+    subscribe: () => Promise.resolve(sub),
+    publish: () => Promise.resolve(),
+    objectGet: () => Promise.resolve(new Uint8Array()),
   } as unknown as Bus
 }
 

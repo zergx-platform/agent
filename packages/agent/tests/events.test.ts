@@ -1,4 +1,3 @@
-import { ResultAsync } from 'neverthrow'
 import { describe, expect, it } from 'vitest'
 import type { Bus } from '../src/bus.js'
 import { publishLifecycle } from '../src/events.js'
@@ -6,16 +5,16 @@ import { publishLifecycle } from '../src/events.js'
 function fakeBus() {
   const published: Array<{ subject: string; payload: unknown }> = []
   const bus = {
-    publishStream: (subject: string, payload: unknown) => {
+    inboxPublish: (subject: string, payload: unknown) => {
       published.push({ subject, payload })
-      return ResultAsync.fromSafePromise(Promise.resolve(undefined))
+      return Promise.resolve()
     },
   }
   return { bus: bus as unknown as Bus, published }
 }
 
 describe('publishLifecycle', () => {
-  it('publishes to notify.lifecycle.session.{event} with event in payload', async () => {
+  it('publishes to notify.lifecycle.session.{event} with kind in payload', async () => {
     const { bus, published } = fakeBus()
     publishLifecycle(bus, 'created', { session_name: 'acme.api.main' })
     publishLifecycle(bus, 'forked', {
@@ -33,7 +32,7 @@ describe('publishLifecycle', () => {
       'notify.lifecycle.session.deleted',
     ])
     expect(published[1]?.payload).toEqual({
-      event: 'forked',
+      kind: 'forked',
       session_name: 'acme.api.feat',
       parent: 'acme.api.main',
     })
@@ -41,10 +40,7 @@ describe('publishLifecycle', () => {
 
   it('swallows publish errors (best-effort trigger hook)', async () => {
     const bus = {
-      publishStream: () =>
-        ResultAsync.fromSafePromise<undefined, string>(
-          Promise.reject('nats down'),
-        ),
+      inboxPublish: () => Promise.reject(new Error('nats down')),
     } as unknown as Bus
     expect(() =>
       publishLifecycle(bus, 'deleted', { session_name: 'x' }),

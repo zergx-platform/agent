@@ -20,7 +20,9 @@
     "hono": "^4.13.3",
     "neverthrow": "^8.2.0",
     "pino": "^10.3.1",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "abep-sdk": "0.1.6",
+    "abep-sdk-nats": "0.1.1"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

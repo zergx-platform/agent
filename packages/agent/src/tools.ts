@@ -3,9 +3,10 @@ import {
   type ExtensionTool,
 } from '@rucoder-agent/schema'
 import { jsonSchema, type Tool } from 'ai'
-import type { Subscription } from 'nats'
+import type { Subscription } from 'abep-sdk'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
+import { Agent as AbepAgent } from 'abep-sdk'
 import type { Bus } from './bus.js'
 import { toolCallSubject, toolResultSubject } from './bus.js'
 import { EXTENSION_DISCOVER_SUBJECT } from './extensions.js'
@@ -43,11 +44,11 @@ export async function discoverTools(
   maxWaitMs = 500,
 ): Promise<DiscoveredTool[]> {
   const replies = await bus
-    .requestMany(EXTENSION_DISCOVER_SUBJECT, {}, maxWaitMs)
-    .unwrapOr([])
+    .requestMany(EXTENSION_DISCOVER_SUBJECT, {}, { maxWaitMs })
+    .catch(() => [])
   const out: DiscoveredTool[] = []
-  for (const bytes of replies) {
-    const parsed = parse(ExtensionManifestSchema, bytes)
+  for (const env of replies) {
+    const parsed = parse(ExtensionManifestSchema, JSON.stringify(env.payload))
     if (parsed.isErr()) continue
     const m = parsed.value
     if (!m.capabilities.includes('tools')) continue
@@ -134,25 +135,23 @@ export function invokeToolViaBus(
   args: Record<string, unknown>,
   timeoutMs: number,
 ): ResultAsync<ToolResult, string> {
-  return bus
-    .subscribe(toolResultSubject(callId))
-    .andThen(sub =>
-      bus
-        .publish(
-          toolCallSubject(extId, name),
-          { call_id: callId, arguments: args },
-          // Reply subject: extension SDKs answer via msg.Respond, so the
-          // result lands on tool.result.{call_id} — the subject we hold.
-          toolResultSubject(callId),
-        )
-        .map(() => sub),
-    )
-    .andThen(sub =>
-      ResultAsync.fromPromise(
-        firstResult(sub, name, timeoutMs),
-        e => `tool '${name}': ${String(e)}`,
-      ).andThen(env => resolveContent(bus, env)),
-    )
+  return ResultAsync.fromPromise(
+    (async () => {
+      const sub = await bus.subscribe(toolResultSubject(callId))
+      await bus.publish(
+        toolCallSubject(extId, name),
+        { call_id: callId, arguments: args },
+        toolResultSubject(callId),
+      )
+      return sub
+    })(),
+    e => `tool '${name}': ${String(e)}`,
+  ).andThen(sub =>
+    ResultAsync.fromPromise(
+      firstResult(sub, name, timeoutMs),
+      e => `tool '${name}': ${String(e)}`,
+    ).andThen(env => resolveContent(bus, env)),
+  )
 }
 
 /**
@@ -171,37 +170,33 @@ export async function* invokeToolStreamViaBus(
   args: Record<string, unknown>,
   timeoutMs: number,
 ): AsyncGenerator<ToolResult> {
-  const subRes = await bus.subscribe(toolResultSubject(callId))
-  if (subRes.isErr()) {
-    yield { content: `tool '${name}' failed: ${subRes.error}`, metadata: null }
-    return
-  }
-  const sub = subRes.value
-  const pub = await bus.publish(
-    toolCallSubject(extId, name),
-    { call_id: callId, arguments: args },
-    toolResultSubject(callId),
-  )
-  if (pub.isErr()) {
-    sub.unsubscribe()
-    yield { content: `tool '${name}' failed: ${pub.error}`, metadata: null }
+  let sub
+  try {
+    sub = await bus.subscribe(toolResultSubject(callId))
+    await bus.publish(
+      toolCallSubject(extId, name),
+      { call_id: callId, arguments: args },
+      toolResultSubject(callId),
+    )
+  } catch (e) {
+    yield { content: `tool '${name}' failed: ${String(e)}`, metadata: null }
     return
   }
 
   let timedOut = false
   const deadline = setTimeout(() => {
     timedOut = true
-    sub.unsubscribe()
+    sub.close()
   }, timeoutMs)
   const finish = () => {
     clearTimeout(deadline)
-    sub.unsubscribe()
+    sub.close()
   }
 
   try {
     for await (const m of sub) {
       if (timedOut) break
-      const parsed = parse(ToolResultEnvelopeSchema, m.data)
+      const parsed = parse(ToolResultEnvelopeSchema, JSON.stringify(m.payload))
       if (!parsed.isOk()) {
         continue
       }
@@ -242,18 +237,18 @@ function firstResult(
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      sub.unsubscribe()
+      sub.close()
       reject(new Error(`tool '${name}' timed out`))
     }, timeoutMs)
     void (async () => {
       try {
         for await (const m of sub) {
           if (settled) return
-          const parsed = parse(ToolResultEnvelopeSchema, m.data)
+          const parsed = parse(ToolResultEnvelopeSchema, JSON.stringify(m.payload))
           if (parsed.isOk()) {
             settled = true
             clearTimeout(timer)
-            sub.unsubscribe()
+            sub.close()
             resolve(parsed.value)
             return
           }
@@ -284,9 +279,14 @@ function resolveContent(
   env: ToolResultEnvelope,
 ): ResultAsync<ToolResult, string> {
   if (env.content_object !== undefined) {
-    return bus
-      .getObject(env.content_object)
-      .map(bytes => ({ content: bytes.toString(), metadata: env.metadata }))
+    const agent = new AbepAgent(bus)
+    return ResultAsync.fromPromise(
+      agent.getObject(env.content_object),
+      e => `object get: ${String(e)}`,
+    ).map(bytes => ({
+      content: bytes === null ? '' : Buffer.from(bytes).toString(),
+      metadata: env.metadata,
+    }))
   }
   return ResultAsync.fromSafePromise(
     Promise.resolve({ content: env.content, metadata: env.metadata }),

@@ -1,6 +1,7 @@
 import type { Provider, ProviderMap } from '@opencode-ai/models'
 import { Models } from '@opencode-ai/models'
 import { providers as snapshotProviders } from '@opencode-ai/models/snapshot'
+import { Agent as AbepAgent } from 'abep-sdk'
 import { ResultAsync } from 'neverthrow'
 import type { Bus } from './bus.js'
 
@@ -32,5 +33,11 @@ export function refreshModelsDev(bus: Bus): ResultAsync<void, string> {
 
   return live
     .orElse(() => fallback)
-    .andThen(providers => bus.putModelsDev(JSON.stringify(providers)))
+    .andThen(providers => {
+      const agent = new AbepAgent(bus)
+      return ResultAsync.fromPromise(
+        agent.putModelsDev(JSON.stringify(providers)),
+        e => `cache models.dev: ${String(e)}`,
+      )
+    })
 }

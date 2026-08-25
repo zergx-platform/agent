@@ -9,7 +9,8 @@
     "build": "npm run build --workspace=@rucoder-agent/schema && npm run build --workspace=@rucoder-agent/agent && npm run build --workspace=@rucoder-agent/server && npm run build --workspace=@rucoder-agent/ui && node scripts/build-sea.mjs",
     "check": "biome check .",
     "check:fix": "biome check --fix .",
-    "dev": "tsx watch packages/server/src/index.ts",    "dev:server": "tsx watch packages/server/src/index.ts",
+    "dev": "tsx watch packages/server/src/index.ts",
+    "dev:server": "tsx watch packages/server/src/index.ts",
     "dev:web": "npm run dev --workspace=@rucoder-agent/ui",
     "format": "biome format --write .",
     "lint": "biome lint .",
@@ -23,6 +24,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.33.0"
+    "@lucide/svelte": "^1.33.0",
+    "abep-sdk": "^0.1.6"
   }
 }

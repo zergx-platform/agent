@@ -44,25 +44,26 @@ export function discoverExtensions(
   bus: Bus,
   maxWaitMs = 500,
 ): ResultAsync<ResolvedExtension[], string> {
-  return bus
-    .requestMany(EXTENSION_DISCOVER_SUBJECT, {}, maxWaitMs)
-    .map(replies => {
-      const out: ResolvedExtension[] = []
-      const seen = new Map<string, boolean>()
-      for (const bytes of replies) {
-        const parsed = parse(ExtensionManifestSchema, bytes)
-        if (parsed.isErr()) continue
-        const m = parsed.value
-        if (!m.capabilities.includes('prompt')) continue
-        if (seen.has(m.id)) continue
-        seen.set(m.id, true)
-        out.push({
-          id: m.id,
-          variables: m.prompt?.variables ?? [],
-        })
-      }
-      return out
-    })
+  return ResultAsync.fromPromise(
+    bus.requestMany(EXTENSION_DISCOVER_SUBJECT, {}, { maxWaitMs }),
+    e => `discover: ${String(e)}`,
+  ).map(replies => {
+    const out: ResolvedExtension[] = []
+    const seen = new Map<string, boolean>()
+    for (const env of replies) {
+      const parsed = parse(ExtensionManifestSchema, JSON.stringify(env.payload))
+      if (parsed.isErr()) continue
+      const m = parsed.value
+      if (!m.capabilities.includes('prompt')) continue
+      if (seen.has(m.id)) continue
+      seen.set(m.id, true)
+      out.push({
+        id: m.id,
+        variables: m.prompt?.variables ?? [],
+      })
+    }
+    return out
+  })
 }
 
 /**
@@ -75,8 +76,11 @@ export function resolveExtensionVariable(
   id: string,
   name: string,
 ): ResultAsync<string, string> {
-  return bus.request(extVariableSubject(id, name), { name }).andThen(bytes => {
-    const r = parse(ExtensionVariableValueSchema, bytes)
+  return ResultAsync.fromPromise(
+    bus.request(extVariableSubject(id, name), { name }),
+    e => `resolve ${id}.${name}: ${String(e)}`,
+  ).andThen(env => {
+    const r = parse(ExtensionVariableValueSchema, JSON.stringify(env.payload))
     if (r.isErr()) {
       return ResultAsync.fromSafePromise<string, string>(
         Promise.reject(new Error(r.error)),

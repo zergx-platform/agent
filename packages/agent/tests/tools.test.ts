@@ -21,17 +21,17 @@ function fakeBus() {
 
   const makeSub = (callId: string) => ({
     async *[Symbol.asyncIterator]() {
-      const data = resultFor
-        ? JSON.stringify(resultFor(callId))
-        : JSON.stringify({
+      const payload = resultFor
+        ? resultFor(callId)
+        : {
             call_id: callId,
             tool: 'read',
             content: 'ok',
             metadata: null,
-          })
-      yield { data: Buffer.from(data) }
+          }
+      yield { payload }
     },
-    unsubscribe: () => {
+    close: () => {
       /* fake bus has no real subscription to tear down */
     },
   })
@@ -42,12 +42,12 @@ function fakeBus() {
       const sub = subject.startsWith('tool.result.')
         ? makeSub(subject.slice('tool.result.'.length))
         : makeSub('')
-      return ResultAsync.fromSafePromise(Promise.resolve(sub))
+      return Promise.resolve(sub)
     },
     publish: (subject: string, payload: unknown) => {
       log.push(`pub:${subject}`)
       published.push({ subject, payload })
-      return ResultAsync.fromSafePromise(Promise.resolve(undefined))
+      return Promise.resolve()
     },
   }
   return {
@@ -136,23 +136,21 @@ describe('discoverToolsCached', () => {
   /** Bus fake counting requestMany broadcasts. */
   const countingBus = (): { bus: Bus; broadcasts: () => number } => {
     let n = 0
-    const reply = Buffer.from(
-      JSON.stringify({
-        id: 'repo-extension',
-        version: '0.3.0',
-        capabilities: ['tools'],
-        tools: [{ name: 'read', description: 'd' }],
-      }),
-    )
     const bus = {
       requestMany: () => {
         n += 1
-        return ResultAsync.fromSafePromise(
-          (async () => {
-            await new Promise(r => setTimeout(r, 5))
-            return [reply]
-          })(),
-        )
+        return (async () => {
+          await new Promise(r => setTimeout(r, 5))
+          return [{
+            v: 1, ch: 'abep.discover', kind: 'res',
+            payload: {
+              id: 'repo-extension',
+              version: '0.3.0',
+              capabilities: ['tools'],
+              tools: [{ name: 'read', description: 'd' }],
+            },
+          }]
+        })()
       },
     }
     return { bus: bus as unknown as Bus, broadcasts: () => n }

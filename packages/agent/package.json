@@ -23,10 +23,11 @@
     "@rucoder-agent/schema": "*",
     "ai": "^7.0.73",
     "drizzle-orm": "^1.0.0-rc.4",
-    "nats": "^2.29.3",
     "neverthrow": "^8.2.0",
     "postgres": "^3.4.9",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "abep-sdk": "0.1.6",
+    "abep-sdk-nats": "0.1.1"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
