@@ -5,6 +5,7 @@
   import { markdown } from '$lib/markdown'
   import { Send, Square, GitFork, Mailbox, FilePenLine, ChevronDown, Undo2, Layers } from '@lucide/svelte'
   import MailboxPanel from '$lib/MailboxPanel.svelte'
+  import ToolCallLog from '$lib/ToolCallLog.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
@@ -13,7 +14,9 @@
   let { active, onrefresh }: { active: Session; onrefresh: () => void } = $props()
 
   type Msg = { id: string; role: string; content: string }
+  type ToolLog = { toolCallId: string; toolName: string; state: 'running' | 'done'; log: string }
   let messages: Msg[] = $state([])
+  let toolLogs: ToolLog[] = $state([])
   let input = $state('')
   let streaming = $state(false)
   let assistantBuf = $state('')
@@ -78,6 +81,30 @@
       if (data.event === 'text-delta') {
         const text = SseParamsSchema.safeParse(p)
         if (text.success && 'text' in text.data) assistantBuf += text.data.text
+      } else if (data.event === 'tool-call') {
+        const c = SseParamsSchema.safeParse(p)
+        if (c.success && 'toolName' in c.data) {
+          toolLogs = [
+            ...toolLogs,
+            { toolCallId: c.data.toolCallId, toolName: c.data.toolName, state: 'running', log: '' },
+          ]
+        }
+      } else if (data.event === 'tool-delta') {
+        const d = SseParamsSchema.safeParse(p)
+        if (d.success && 'content' in d.data) {
+          toolLogs = toolLogs.map(t =>
+            t.toolCallId === d.data.toolCallId
+              ? { ...t, log: t.log + d.data.content }
+              : t,
+          )
+        }
+      } else if (data.event === 'tool-result') {
+        const r = SseParamsSchema.safeParse(p)
+        if (r.success && 'toolName' in r.data) {
+          toolLogs = toolLogs.map(t =>
+            t.toolCallId === r.data.toolCallId ? { ...t, state: 'done' } : t,
+          )
+        }
       } else if (data.event === 'turn-complete') {
         flushAssistant()
         streaming = false
@@ -117,6 +144,7 @@
     const text = input.trim()
     if (text === '' || streaming) return
     messages = [...messages, { id: `local-${Date.now()}`, role: 'user', content: text }]
+    toolLogs = []
     input = ''
     assistantBuf = ''
     streaming = true
@@ -315,7 +343,15 @@
       </div>
     {/if}
 
-    {#if streaming && assistantBuf === ''}
+    {#each toolLogs as t (t.toolCallId)}
+      <div class="flex justify-start">
+        <div class="max-w-[80%] w-full">
+          <ToolCallLog toolName={t.toolName} state={t.state} log={t.log} />
+        </div>
+      </div>
+    {/each}
+
+    {#if streaming && assistantBuf === '' && toolLogs.length === 0}
       <div class="text-muted-foreground text-sm">Thinking…</div>
     {/if}
   </div>

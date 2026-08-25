@@ -358,6 +358,15 @@ async function runTurnOnce(
               })
               break
             case 'tool-result':
+              if (part.preliminary === true) {
+                // Streamed progress: shown to the UI, never fed to the model.
+                pushEvent(deps.bus, sid, 'tool-delta', {
+                  toolCallId: part.toolCallId,
+                  toolName: part.toolName,
+                  content: part.output.content,
+                })
+                break
+              }
               toolResults.push({
                 id: part.toolCallId,
                 name: part.toolName,

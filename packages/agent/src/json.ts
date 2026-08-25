@@ -102,6 +102,7 @@ export const ToolResultEnvelopeSchema = z.object({
   content: z.string(),
   content_object: z.string().optional(),
   metadata: z.unknown(),
+  stream: z.string().optional(),
 })
 export type ToolResultEnvelope = z.infer<typeof ToolResultEnvelopeSchema>
 

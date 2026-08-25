@@ -29,6 +29,8 @@ export interface DiscoveredTool {
   description: string
   /** JSON Schema object describing the tool's arguments. */
   inputSchema: Record<string, unknown>
+  /** Whether the tool emits progress deltas before its final result. */
+  streaming: boolean
 }
 
 /**
@@ -114,6 +116,7 @@ function toolToDiscovered(extId: string, t: ExtensionTool): DiscoveredTool {
     name: t.name,
     description: t.description,
     inputSchema: t.input_schema ?? { type: 'object', properties: {} },
+    streaming: t.streaming === true,
   }
 }
 
@@ -150,6 +153,78 @@ export function invokeToolViaBus(
         e => `tool '${name}': ${String(e)}`,
       ).andThen(env => resolveContent(bus, env)),
     )
+}
+
+/**
+ * Streamed tool invocation: subscribe to `tool.result.{call_id}` and yield a
+ * ToolResult per envelope. Envelopes with `stream:"delta"` are progress
+ * chunks (yielded as content, metadata null); the `stream:"final"` (or
+ * legacy stream-less) envelope terminates the stream as the last yielded
+ * value. The AI SDK turns each yield into a `preliminary` tool-result part
+ * and the final one into the real result.
+ */
+export async function* invokeToolStreamViaBus(
+  bus: Bus,
+  extId: string,
+  name: string,
+  callId: string,
+  args: Record<string, unknown>,
+  timeoutMs: number,
+): AsyncGenerator<ToolResult> {
+  const subRes = await bus.subscribe(toolResultSubject(callId))
+  if (subRes.isErr()) {
+    yield { content: `tool '${name}' failed: ${subRes.error}`, metadata: null }
+    return
+  }
+  const sub = subRes.value
+  const pub = await bus.publish(
+    toolCallSubject(extId, name),
+    { call_id: callId, arguments: args },
+    toolResultSubject(callId),
+  )
+  if (pub.isErr()) {
+    sub.unsubscribe()
+    yield { content: `tool '${name}' failed: ${pub.error}`, metadata: null }
+    return
+  }
+
+  let timedOut = false
+  const deadline = setTimeout(() => {
+    timedOut = true
+    sub.unsubscribe()
+  }, timeoutMs)
+  const finish = () => {
+    clearTimeout(deadline)
+    sub.unsubscribe()
+  }
+
+  try {
+    for await (const m of sub) {
+      if (timedOut) break
+      const parsed = parse(ToolResultEnvelopeSchema, m.data)
+      if (!parsed.isOk()) continue
+      const env = parsed.value
+      const resolved = await resolveContent(bus, env)
+      if (resolved.isErr()) {
+        yield { content: `tool '${name}' failed: ${resolved.error}`, metadata: null }
+        return
+      }
+      if (env.stream === 'final' || env.stream === undefined) {
+        yield resolved.value
+        return
+      }
+      // progress delta
+      yield { content: resolved.value.content, metadata: null }
+    }
+    yield {
+      content: timedOut
+        ? `tool '${name}' timed out`
+        : `tool '${name}' result stream closed`,
+      metadata: null,
+    }
+  } finally {
+    finish()
+  }
 }
 
 function firstResult(
@@ -239,24 +314,45 @@ export function buildAiTools(
     tools[aiName] = {
       description: t.description,
       inputSchema: jsonSchema(t.inputSchema),
-      execute: async (args, { toolCallId }) => {
-        const callArgs =
-          sessionId === undefined
-            ? (args ?? {})
-            : { ...(args ?? {}), _session: sessionId }
-        const result = await invokeToolViaBus(
-          bus,
-          t.extId,
-          t.name,
-          toolCallId,
-          callArgs,
-          timeoutMs,
-        )
-        return result.match(
-          output => output,
-          e => ({ content: `tool '${t.name}' failed: ${e}`, metadata: null }),
-        )
-      },
+      execute: t.streaming
+        ? (async function* (
+            args: Record<string, unknown>,
+            options: { toolCallId: string },
+          ) {
+            const callArgs =
+              sessionId === undefined
+                ? (args ?? {})
+                : { ...(args ?? {}), _session: sessionId }
+            yield* invokeToolStreamViaBus(
+              bus,
+              t.extId,
+              t.name,
+              options.toolCallId,
+              callArgs,
+              timeoutMs,
+            )
+          }) as never
+        : async (args, { toolCallId }) => {
+            const callArgs =
+              sessionId === undefined
+                ? (args ?? {})
+                : { ...(args ?? {}), _session: sessionId }
+            const result = await invokeToolViaBus(
+              bus,
+              t.extId,
+              t.name,
+              toolCallId,
+              callArgs,
+              timeoutMs,
+            )
+            return result.match(
+              output => output,
+              e => ({
+                content: `tool '${t.name}' failed: ${e}`,
+                metadata: null,
+              }),
+            )
+          },
     }
   }
   return tools
