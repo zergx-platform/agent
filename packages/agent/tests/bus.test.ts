@@ -1,10 +1,6 @@
-import { describe, expect, it } from 'vitest'
 import { Agent } from 'abep-sdk'
-import {
-  mailboxSubject,
-  natsToken,
-  sseSubject,
-} from '../src/bus.js'
+import { describe, expect, it } from 'vitest'
+import { mailboxSubject, natsToken, sseSubject } from '../src/bus.js'
 
 const NATS_TOKEN_RE = /^[A-Za-z0-9_-]+$/
 

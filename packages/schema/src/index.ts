@@ -193,7 +193,11 @@ export const SseParamsSchema = z.union([
   z.object({ message: z.string() }),
   z.object({ reason: z.string() }),
   z.object({ tool_use_id: z.string(), content: z.string() }),
-  z.object({ toolCallId: z.string(), toolName: z.string(), content: z.string() }),
+  z.object({
+    toolCallId: z.string(),
+    toolName: z.string(),
+    content: z.string(),
+  }),
 ])
 export const SSEEnvelopeSchema = z.object({
   event: z.string(),

@@ -24,11 +24,30 @@ describe('invokeToolStreamViaBus', () => {
   it('yields one ToolResult per delta, then the final', async () => {
     const bus = fakeStreamBus([
       { call_id: 'c1', tool: 'run', content: 'A\n', stream: 'delta' },
-      { call_id: 'c1', tool: 'run', content: 'B\n', stream: 'delta', metadata: null },
-      { call_id: 'c1', tool: 'run', content: 'done', stream: 'final', metadata: null },
+      {
+        call_id: 'c1',
+        tool: 'run',
+        content: 'B\n',
+        stream: 'delta',
+        metadata: null,
+      },
+      {
+        call_id: 'c1',
+        tool: 'run',
+        content: 'done',
+        stream: 'final',
+        metadata: null,
+      },
     ])
     const out: string[] = []
-    for await (const r of invokeToolStreamViaBus(bus, 'ops', 'run', 'c1', {}, 5000)) {
+    for await (const r of invokeToolStreamViaBus(
+      bus,
+      'ops',
+      'run',
+      'c1',
+      {},
+      5000,
+    )) {
       out.push(r.content)
     }
     expect(out).toEqual(['A\n', 'B\n', 'done'])

@@ -1,4 +1,3 @@
-import { ResultAsync } from 'neverthrow'
 import { describe, expect, it } from 'vitest'
 import type { Bus } from '../src/bus.js'
 import {
@@ -141,15 +140,19 @@ describe('discoverToolsCached', () => {
         n += 1
         return (async () => {
           await new Promise(r => setTimeout(r, 5))
-          return [{
-            v: 1, ch: 'abep.discover', kind: 'res',
-            payload: {
-              id: 'repo-extension',
-              version: '0.3.0',
-              capabilities: ['tools'],
-              tools: [{ name: 'read', description: 'd' }],
+          return [
+            {
+              v: 1,
+              ch: 'abep.discover',
+              kind: 'res',
+              payload: {
+                id: 'repo-extension',
+                version: '0.3.0',
+                capabilities: ['tools'],
+                tools: [{ name: 'read', description: 'd' }],
+              },
             },
-          }]
+          ]
         })()
       },
     }

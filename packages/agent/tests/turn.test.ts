@@ -13,15 +13,20 @@ function fakeBus(overrides: {
     kvCreate: (_b: string, _k: string, _v: string, _t: number) =>
       Promise.resolve(overrides.claim('')),
     kvCas: () => Promise.resolve(1),
-    kvDelete: () =>
-      Promise.resolve(overrides.release?.('') ?? undefined),
+    kvDelete: () => Promise.resolve(overrides.release?.('') ?? undefined),
     kvGet: () => Promise.resolve(null),
     kvPut: () => Promise.resolve(),
     objectPut: () => Promise.resolve(),
     objectGet: () => Promise.resolve(new Uint8Array()),
     inboxPublish: () => Promise.resolve(),
     publish: () => Promise.resolve(),
-    subscribe: () => Promise.resolve({ close: () => {}, [Symbol.asyncIterator]: () => ({ next: async () => ({ done: true as const, value: undefined }) }) }),
+    subscribe: () =>
+      Promise.resolve({
+        close: () => {},
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: true as const, value: undefined }),
+        }),
+      }),
   } as unknown as Bus
 }
 

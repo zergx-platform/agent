@@ -17,7 +17,11 @@ export function pushEvent(
   params: unknown = {},
 ): void {
   void bus
-    .inboxPublish(sseSubject(sid), { event, params, eid: randomUUID() }, { id: randomUUID() })
+    .inboxPublish(
+      sseSubject(sid),
+      { event, params, eid: randomUUID() },
+      { id: randomUUID() },
+    )
     .catch(err => {
       console.warn(`[agent] sse publish failed (${sid}): ${String(err)}`)
     })
@@ -56,11 +60,17 @@ export function publishLifecycle(
   payload: Record<string, unknown>,
 ): void {
   void bus
-    .inboxPublish(`notify.lifecycle.session.${event}`, {
-      kind: event,
-      ...payload,
-    }, { id: randomUUID() })
+    .inboxPublish(
+      `notify.lifecycle.session.${event}`,
+      {
+        kind: event,
+        ...payload,
+      },
+      { id: randomUUID() },
+    )
     .catch(err => {
-      console.warn(`[agent] lifecycle publish failed (${event}): ${String(err)}`)
+      console.warn(
+        `[agent] lifecycle publish failed (${event}): ${String(err)}`,
+      )
     })
 }

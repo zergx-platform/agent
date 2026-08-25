@@ -1,5 +1,4 @@
 import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
-import { Agent as AbepAgent } from 'abep-sdk'
 import {
   compactSession,
   interruptRun,
@@ -7,7 +6,6 @@ import {
   Messages,
   mailboxSubject,
   Parts,
-  parse,
   publishLifecycle,
   Sessions,
   sseSubject,
@@ -22,6 +20,7 @@ import {
   SessionSettingsBodySchema,
   UndoBodySchema,
 } from '@rucoder-agent/schema'
+import { Agent as AbepAgent } from 'abep-sdk'
 import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
@@ -51,7 +50,7 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
     const subject = sseSubject(sid)
 
     // Subscribe live BEFORE replaying so the handover can overlap, not drop.
-    let sub
+    let sub: Awaited<ReturnType<typeof bus.subscribe>>
     try {
       sub = await bus.subscribe(subject)
     } catch (e) {

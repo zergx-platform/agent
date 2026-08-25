@@ -2,11 +2,11 @@ import {
   ExtensionManifestSchema,
   type ExtensionTool,
 } from '@rucoder-agent/schema'
-import { jsonSchema, type Tool } from 'ai'
 import type { Subscription } from 'abep-sdk'
+import { Agent as AbepAgent } from 'abep-sdk'
+import { jsonSchema, type Tool } from 'ai'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
-import { Agent as AbepAgent } from 'abep-sdk'
 import type { Bus } from './bus.js'
 import { toolCallSubject, toolResultSubject } from './bus.js'
 import { EXTENSION_DISCOVER_SUBJECT } from './extensions.js'
@@ -170,7 +170,7 @@ export async function* invokeToolStreamViaBus(
   args: Record<string, unknown>,
   timeoutMs: number,
 ): AsyncGenerator<ToolResult> {
-  let sub
+  let sub: Awaited<ReturnType<Bus['subscribe']>>
   try {
     sub = await bus.subscribe(toolResultSubject(callId))
     await bus.publish(
@@ -244,7 +244,10 @@ function firstResult(
       try {
         for await (const m of sub) {
           if (settled) return
-          const parsed = parse(ToolResultEnvelopeSchema, JSON.stringify(m.payload))
+          const parsed = parse(
+            ToolResultEnvelopeSchema,
+            JSON.stringify(m.payload),
+          )
           if (parsed.isOk()) {
             settled = true
             clearTimeout(timer)

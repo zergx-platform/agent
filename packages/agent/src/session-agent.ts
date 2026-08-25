@@ -1,10 +1,10 @@
 import type { PartRow } from '@rucoder-agent/schema'
+import { Agent as AbepAgent } from 'abep-sdk'
 import type { ModelMessage, Tool } from 'ai'
 import { streamText } from 'ai'
 import { err, ok, type Result } from 'neverthrow'
 import type { Sql } from 'postgres'
 import { z } from 'zod'
-import { Agent as AbepAgent } from 'abep-sdk'
 import type { Bus } from './bus.js'
 import { mailboxSubject, SESSION_LEASE_MS } from './bus.js'
 import {
@@ -27,7 +27,6 @@ import { rebuildHistory } from './history.js'
 import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
   ContentPayloadSchema,
-  MailboxEnvelopeSchema,
   parse,
   SummaryPartDataSchema,
   TextPartDataSchema,
@@ -894,7 +893,10 @@ export async function compactSession(
   // Rewrite the cache to the new bounded context id list (with the cm).
   const chainAfter = await Messages.chain(deps.db, cmId, 100_000, null)
   if (chainAfter.isOk()) {
-    void new AbepAgent(deps.bus).putSessionIds(sid, chainAfter.value.map(m => m.id))
+    void new AbepAgent(deps.bus).putSessionIds(
+      sid,
+      chainAfter.value.map(m => m.id),
+    )
   }
 
   pushEvent(deps.bus, sid, 'compacted', { reason })
