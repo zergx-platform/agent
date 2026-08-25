@@ -202,8 +202,14 @@ export async function* invokeToolStreamViaBus(
     for await (const m of sub) {
       if (timedOut) break
       const parsed = parse(ToolResultEnvelopeSchema, m.data)
-      if (!parsed.isOk()) continue
+      if (!parsed.isOk()) {
+        console.log(`[agent-debug] invokeToolStream parse fail: ${parsed.error}`)
+        continue
+      }
       const env = parsed.value
+      console.log(
+        `[agent-debug] invokeToolStream msg stream=${env.stream} content=${JSON.stringify(env.content).slice(0, 60)}`,
+      )
       const resolved = await resolveContent(bus, env)
       if (resolved.isErr()) {
         yield { content: `tool '${name}' failed: ${resolved.error}`, metadata: null }
