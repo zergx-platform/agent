@@ -4,12 +4,17 @@ import {
   ProviderBodySchema,
   ProviderTestBodySchema,
 } from '@rucoder-agent/schema'
-import { ResultAsync } from 'neverthrow'
+import { err, ok, ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
 
 const HeadersRecordSchema = z.record(z.string(), z.unknown())
 const ModelsArraySchema = z.array(z.string())
+
+/** OpenAI-compatible `GET /models` envelope; `data` may be absent/empty. */
+const ProviderModelsResponseSchema = z.object({
+  data: z.array(z.unknown()).optional(),
+})
 
 const ErrorSchema = z.object({ ok: z.boolean(), error: z.string() })
 
@@ -210,9 +215,16 @@ export const providerRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ ok: false, error: `HTTP ${res.status}` }, 200)
     }
     const body = await ResultAsync.fromPromise(
-      res.json().then(v => v as { data?: unknown[] }),
+      res.json(),
       () => 'provider test: invalid json',
-    )
+    ).andThen(raw => {
+      // Validate the response envelope instead of casting it: an arbitrary
+      // provider's /models payload is untrusted input.
+      const parsed = ProviderModelsResponseSchema.safeParse(raw)
+      return parsed.success
+        ? ok(parsed.data)
+        : err('provider test: unexpected /models response shape')
+    })
     if (body.isErr()) {
       return c.json({ ok: false, error: body.error }, 200)
     }

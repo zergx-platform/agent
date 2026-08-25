@@ -112,9 +112,12 @@ export async function renderTemplate(
 
   let out = template
   for (const match of matches) {
-    const full = match[0]
-    const id = match[1]
-    const name = match[2]
+    const [full, id, name] = match
+    // The VAR_TOKEN regex guarantees all three groups on a match; the guard
+    // exists purely so the compiler sees it too.
+    if (full === undefined || id === undefined || name === undefined) {
+      continue
+    }
 
     const builtin = builtinVariableValue(name)
     if (builtin !== null) {

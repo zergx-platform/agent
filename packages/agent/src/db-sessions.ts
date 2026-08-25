@@ -24,11 +24,13 @@ const toRow = (r: Row): SessionRow => ({
 })
 
 export interface SessionPatch {
-  model?: string
-  preset?: string
-  maxTurns?: number
-  systemPrompt?: string
-  lastReadAt?: string
+  // `| undefined` on every optional: callers pass zod-inferred bodies whose
+  // absent fields arrive as explicit `undefined` (exactOptionalPropertyTypes).
+  model?: string | undefined
+  preset?: string | undefined
+  maxTurns?: number | undefined
+  systemPrompt?: string | undefined
+  lastReadAt?: string | undefined
 }
 
 export const Sessions = {
@@ -63,9 +65,11 @@ export const Sessions = {
   create(
     db: Db,
     input: Pick<SessionRow, 'name'> & {
-      model?: string
-      preset?: string
-      tipId?: string | null
+      // `| undefined`: explicit-undefined keys from zod-inferred bodies are
+      // accepted and fall through to the defaults below.
+      model?: string | undefined
+      preset?: string | undefined
+      tipId?: string | null | undefined
     },
   ): ResultAsync<string, string> {
     return q(

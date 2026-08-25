@@ -57,6 +57,7 @@ export function splitScan(
   let i = filtered.length - 1
   for (; i >= 0; i--) {
     const e = filtered[i]
+    if (e === undefined) break
     tailNewest.push(e)
     acc += costOf(e)
     if (acc >= tailTokens) break
@@ -77,6 +78,7 @@ export function splitScan(
   acc = 0
   for (i = i - 1; i >= 0; i--) {
     const e = filtered[i]
+    if (e === undefined) break
     foldedNewest.push(e)
     acc += costOf(e)
     if (acc >= foldTokens) break

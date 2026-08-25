@@ -30,15 +30,36 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
-// `node:sea`'s `getRawAsset` is only available inside a single-executable
-// application. We load it lazily via the CJS `require` (the whole server is
-// bundled to CJS for SEA) so a normal `node` run does not crash at import.
+/**
+ * The `node:sea` module surface this server depends on. The API only exists
+ * inside a single-executable application; we probe it structurally so no
+ * assumptions are made about the resolved module.
+ */
+interface SeaModule {
+  getRawAsset: (key: string) => ArrayBuffer | undefined
+}
+
+/** Structural type guard for the optional `node:sea` module. */
+function isSeaModule(value: unknown): value is SeaModule {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'getRawAsset' in value &&
+    typeof value.getRawAsset === 'function'
+  )
+}
+
+/**
+ * `node:sea`'s `getRawAsset` is only available inside a single-executable
+ * application. We load it lazily via the CJS `require` (the whole server is
+ * bundled to CJS for SEA) so a normal `node` run does not crash at import.
+ * The try/catch is the sanctioned CJS-interop boundary.
+ */
 function getSeaAsset(key: string): ArrayBuffer | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sea = require('node:sea') as {
-      getRawAsset: (k: string) => ArrayBuffer | undefined
-    }
+    const sea: unknown = require('node:sea')
+    if (!isSeaModule(sea)) return null
     return sea.getRawAsset(key) ?? null
   } catch {
     return null

@@ -61,6 +61,24 @@ export const natsToken = (sid: string): string =>
 /** Wildcard covering every session mailbox wake subject. */
 export const MAILBOX_WILDCARD = 'mailbox.session.>'
 
+/**
+ * Safely extract the JetStream API error code (`api_error.err_code`) from an
+ * unknown thrown value — a structural probe with no casts: NatsError carries
+ * the envelope as own properties on the Error instance. Returns `null` when
+ * the shape does not match. Exported for tests.
+ */
+export function natsErrorCode(err: unknown): number | null {
+  if (typeof err !== 'object' || err === null || !('api_error' in err)) {
+    return null
+  }
+  const inner: unknown = err.api_error
+  if (typeof inner !== 'object' || inner === null || !('err_code' in inner)) {
+    return null
+  }
+  const code: unknown = inner.err_code
+  return typeof code === 'number' ? code : null
+}
+
 export interface ToolCallEnvelope {
   call_id: string
   arguments: Record<string, unknown>
@@ -105,9 +123,11 @@ export class Bus {
   ): ResultAsync<void, string> {
     return ResultAsync.fromPromise(
       Promise.resolve(
-        this.nc.publish(subject, Buffer.from(JSON.stringify(payload)), {
-          reply,
-        }),
+        this.nc.publish(
+          subject,
+          Buffer.from(JSON.stringify(payload)),
+          reply === undefined ? {} : { reply },
+        ),
       ),
       e => `publish ${subject}: ${String(e)}`,
     )
@@ -256,9 +276,7 @@ export class Bus {
       // ("wrong last sequence") when the key already exists — that's the
       // expected contention case, not a genuine error. Handle the raw error
       // (before it gets stringified into the Result error text).
-      const code = (err as { api_error?: { err_code?: number } }).api_error
-        ?.err_code
-      if (code === 10071) {
+      if (natsErrorCode(err) === 10071) {
         return ResultAsync.fromSafePromise<number | null, string>(
           Promise.resolve(null),
         )
@@ -305,9 +323,10 @@ export class Bus {
         .then(next => next),
       e => (e instanceof Error ? e : new Error(String(e))),
     ).orElse(err => {
-      const code = (err as { api_error?: { err_code?: number } }).api_error
-        ?.err_code
-      if (code === 10071) {
+      // 10071 = "wrong last sequence": the lease was lost (released, expired
+      // and re-created by a competing holder) — contention, not a transport
+      // error.
+      if (natsErrorCode(err) === 10071) {
         return ResultAsync.fromSafePromise<number | null, string>(
           Promise.resolve(null),
         )
