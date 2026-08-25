@@ -11,10 +11,8 @@ import { ResultAsync } from 'neverthrow'
 
 /**
  * Compatibility shim: the legacy `Bus` (native NATS subjects) is now the
- * abep-sdk NATS transport. The agent code continues to address the exact
- * same subjects — `tool.call.{ext}.{tool}`, `tool.result.{call_id}`,
- * `mailbox.session.{token}`, `sse.session.{token}`, `notify.lifecycle.*` —
- * so wire compatibility with extensions is unchanged.
+ * abep-sdk NATS transport. Wire subjects use the abep protocol prefix
+ * (`abep.`) and are shared verbatim with the extension SDKs.
  */
 export type Bus = AbepBus
 export type Subscription = AbepSubscription
@@ -33,13 +31,13 @@ export async function connectBus(
 /** The agent-side role over the abep transport. */
 export const Agent = AbepAgent
 
-// wire subject helpers (byte-compatible with extensions)
+// wire subject helpers (abep protocol subjects, prefix `abep.`)
 export const toolCallSubject = (extId: string, name: string) =>
   `tool.call.${extId}.${name}`
 export const toolResultSubject = (callId: string) => `tool.result.${callId}`
-export const mailboxSubject = (sid: string) =>
-  `mailbox.session.${natsToken(sid)}`
-export const sseSubject = (sid: string) => `sse.session.${natsToken(sid)}`
+export const mailboxSubject = (sid: string) => `abep.mailbox.${natsToken(sid)}`
+export const sseSubject = (sid: string) =>
+  `abep.session.events.${natsToken(sid)}`
 
 // stream names (kept for replayAll callers)
 export const STREAM_SSE = 'RCODER_SSE'

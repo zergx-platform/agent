@@ -34,8 +34,8 @@ describe('natsToken', () => {
 
   it('subjects never contain the raw session name', () => {
     const sid = 'acme:my.repo:main'
-    expect(sseSubject(sid)).toBe(`sse.session.${natsToken(sid)}`)
-    expect(mailboxSubject(sid)).toBe(`mailbox.session.${natsToken(sid)}`)
+    expect(sseSubject(sid)).toBe(`abep.session.events.${natsToken(sid)}`)
+    expect(mailboxSubject(sid)).toBe(`abep.mailbox.${natsToken(sid)}`)
     expect(sseSubject(sid)).not.toContain(':')
   })
 })

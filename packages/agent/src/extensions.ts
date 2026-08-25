@@ -20,12 +20,12 @@ import { parse } from './json.js'
  * `dist/extension-schema.json`.
  */
 
-/** NATS subject an extension must subscribe to for discovery. */
-export const EXTENSION_DISCOVER_SUBJECT = 'rucoder.extension.discover'
+/** Subject an extension must subscribe to for discovery. */
+export const EXTENSION_DISCOVER_SUBJECT = 'abep.discover'
 
-/** NATS subject a variable-resolution request goes to. */
+/** Subject a variable-resolution request goes to. */
 export const extVariableSubject = (id: string, name: string) =>
-  `extension.${id}.prompt.variable.${name}`
+  `abep.var.${id}.${name}`
 
 /** A discovered extension with its declared template variables. */
 export interface ResolvedExtension {

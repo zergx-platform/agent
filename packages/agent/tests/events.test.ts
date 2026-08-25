@@ -26,10 +26,10 @@ describe('publishLifecycle', () => {
     await new Promise(r => setImmediate(r))
 
     expect(published.map(p => p.subject)).toEqual([
-      'notify.lifecycle.session.created',
-      'notify.lifecycle.session.forked',
-      'notify.lifecycle.session.renamed',
-      'notify.lifecycle.session.deleted',
+      'abep.session.lifecycle.created',
+      'abep.session.lifecycle.forked',
+      'abep.session.lifecycle.renamed',
+      'abep.session.lifecycle.deleted',
     ])
     expect(published[1]?.payload).toEqual({
       kind: 'forked',

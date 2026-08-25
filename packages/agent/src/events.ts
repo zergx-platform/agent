@@ -45,14 +45,14 @@ export const events = {
   }),
 }
 
-/** Lifecycle event kinds published on `notify.lifecycle.session.{kind}`. */
+/** Lifecycle event kinds published on `abep.session.lifecycle.{kind}`. */
 export type LifecycleEvent = 'created' | 'forked' | 'renamed' | 'deleted'
 
 /**
  * Trigger hook: after a session lifecycle action commits, notify the durable
- * `notify.>` stream so any service (e.g. repo-extension workspaces) can
- * react. Best-effort by design — consumers must tolerate missed events and
- * converge via their own reconciliation.
+ * stream so any service (e.g. repo-extension workspaces) can react.
+ * Best-effort by design — consumers must tolerate missed events and converge
+ * via their own reconciliation.
  */
 export function publishLifecycle(
   bus: Bus,
@@ -61,7 +61,7 @@ export function publishLifecycle(
 ): void {
   void bus
     .inboxPublish(
-      `notify.lifecycle.session.${event}`,
+      `abep.session.lifecycle.${event}`,
       {
         kind: event,
         ...payload,
