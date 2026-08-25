@@ -22,7 +22,10 @@ export function pushEvent(
       console.warn(`[agent] sse publish failed (${sid}): ${err}`)
       return err
     })
-    .then(() => undefined)
+    .then(
+      () => undefined,
+      () => undefined,
+    )
 }
 
 export const events = {
@@ -66,5 +69,8 @@ export function publishLifecycle(
       console.warn(`[agent] lifecycle publish failed (${event}): ${err}`)
       return err
     })
-    .then(() => undefined)
+    .then(
+      () => undefined,
+      () => undefined,
+    )
 }

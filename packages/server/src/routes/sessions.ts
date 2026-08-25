@@ -735,7 +735,10 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
         type: 'interrupt',
         session_name: sid,
       })
-      .then(() => undefined)
+      .then(
+        () => undefined,
+        () => undefined,
+      )
     return c.json({ interrupted: true }, 200)
   })
   .openapi(compactRoute, async c => {
