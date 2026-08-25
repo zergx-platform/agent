@@ -52,12 +52,16 @@ export const Parts = {
     )
   },
 
-  /** Insert the compaction message's summary part. */
+  /** Insert the compaction message's summary part (with the tail boundary). */
   insertSummary(
     db: Db,
     messageId: string,
     summary: string,
+    tailFromId: string | null,
   ): ResultAsync<string, string> {
-    return Parts.insert(db, messageId, 'summary', 0, { summary })
+    return Parts.insert(db, messageId, 'summary', 0, {
+      summary,
+      tail_from: tailFromId,
+    })
   },
 }

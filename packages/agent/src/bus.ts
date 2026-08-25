@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import {
-  AckPolicy,
   connect,
+  consumerOpts,
+  createInbox,
   DeliverPolicy,
   type JetStreamClient,
   type JsMsg,
@@ -190,18 +191,20 @@ export class Bus {
    */
   consumeMailbox(): ResultAsync<Sub<JsMsg>, string> {
     return ResultAsync.fromPromise(
-      this.js.pullSubscribe(MAILBOX_WILDCARD, {
-        mack: true,
-        config: {
-          durable_name: 'agent-mailbox',
-          filter_subject: MAILBOX_WILDCARD,
-          ack_policy: AckPolicy.Explicit,
-          deliver_policy: DeliverPolicy.All,
-          ack_wait: 30_000_000_000, // 30s
-          max_deliver: -1,
-          max_ack_pending: 1024,
-        },
-      }),
+      this.js.subscribe(
+        MAILBOX_WILDCARD,
+        consumerOpts()
+          .durable('agent-mailbox-push')
+          .queue('agent-mailbox')
+          .deliverTo(createInbox())
+          .filterSubject(MAILBOX_WILDCARD)
+          .ackExplicit()
+          .manualAck()
+          .deliverAll()
+          .ackWait(30_000)
+          .maxDeliver(-1)
+          .maxAckPending(1024),
+      ),
       e => `mailbox consumer: ${String(e)}`,
     )
   }
@@ -222,7 +225,12 @@ export class Bus {
         .publish(
           mailboxSubject(sessionName),
           Buffer.from(
-            JSON.stringify({ id: msgId, session_name: sessionName, type, payload }),
+            JSON.stringify({
+              id: msgId,
+              session_name: sessionName,
+              type,
+              payload,
+            }),
           ),
           { msgID: msgId },
         )
@@ -264,6 +272,21 @@ export class Bus {
     return ResultAsync.fromPromise(
       this.sessionState.delete(natsToken(sid)).then(() => undefined),
       e => `release session ${sid}: ${String(e)}`,
+    )
+  }
+
+  /**
+   * Extend the per-session lease TTL (a turn can outlive the 30s TTL). Only
+   * the current holder should renew; renewing a key we do not own would
+   * resurrect a lease after a competing claim, so a renew that finds the key
+   * absent simply no-ops.
+   */
+  renewSession(sid: string): ResultAsync<void, string> {
+    return ResultAsync.fromPromise(
+      this.sessionState
+        .put(natsToken(sid), Buffer.from('running'))
+        .then(() => undefined),
+      e => `renew session ${sid}: ${String(e)}`,
     )
   }
 

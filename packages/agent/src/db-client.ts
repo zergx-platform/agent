@@ -165,23 +165,15 @@ export function connectDb(url: string): ResultAsync<Db, string> {
 }
 
 /**
- * One-shot schema. The service has never shipped a stable release, so there
- * is no compatibility contract to preserve: on every boot we drop the
- * session-scoped tables and recreate them from the canonical DDL. Message
- * history is greenfield/regenerable and is intentionally discarded — this is
- * a dev-stage reset, not a data migration.
+ * Idempotent schema bootstrap. Tables are created with IF NOT EXISTS and are
+ * never dropped: session history, mailbox, and message chains must survive
+ * restarts, rollouts, and multi-replica boots (dropping them would destroy
+ * every conversation on each deploy and break cross-replica durable mailbox
+ * delivery). Column/table changes must be expressed as additive migrations,
+ * not a drop-and-recreate reset.
  */
 async function migrateSchema(sql: Sql): Promise<void> {
-  await sql.unsafe(`
-    DROP TABLE IF EXISTS mailbox;
-    DROP TABLE IF EXISTS parts;
-    DROP TABLE IF EXISTS messages;
-    DROP TABLE IF EXISTS sessions;
-  `)
   await sql.unsafe(DDL)
-  await sql.unsafe(`
-    ALTER TABLE mailbox ADD COLUMN IF NOT EXISTS session_name TEXT;
-  `)
 }
 
 async function importProviders(sql: Sql): Promise<void> {

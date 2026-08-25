@@ -104,8 +104,17 @@ async function handleMailboxMessage(
     env.payload,
   )
   if (enq.isErr()) {
-    console.warn(`[agent] mailbox: enqueue failed — redelivering`)
-    m.nak(5000)
+    if (isForeignKeyViolation(enq.error)) {
+      // The envelope references a session that no longer exists (deleted, or
+      // a fresh DB after a reset). Retrying can never succeed: drop it.
+      console.warn(
+        `[agent] mailbox: session ${env.session_name} missing — discarding`,
+      )
+      m.term()
+    } else {
+      console.warn(`[agent] mailbox: enqueue failed — redelivering`)
+      m.nak(5000)
+    }
     return
   }
   m.ack()
@@ -141,6 +150,9 @@ export async function runSessionTurn(
 
     try {
       for (;;) {
+        // Renew the lease so a long-running turn can't be re-claimed by a
+        // concurrent replica after the 30s TTL lapses.
+        void deps.bus.renewSession(sid)
         const item = await drainOne(deps, sid)
         if (item === null) {
           // Re-drain after a short grace to close the enqueue/drain race.
@@ -193,6 +205,15 @@ async function drainOne(deps: AgentDeps, sid: string) {
   return r.isErr() ? null : r.value
 }
 
+/**
+ * Detect a Postgres foreign-key violation (SQLSTATE 23503) in an error
+ * message. Used to distinguish permanent poison-message failures (envelope
+ * references a deleted session) from transient DB errors worth redelivering.
+ */
+function isForeignKeyViolation(errText: string): boolean {
+  return /23503|foreign key|violates foreign key/i.test(errText)
+}
+
 interface TurnCtx {
   tools: Record<string, Tool>
   system: string
@@ -233,7 +254,6 @@ async function runTurnOnce(
         if (parsed.isOk() && parsed.value.type === 'interrupt') ctrl.abort()
       }
     })()
-    void sub.drain()
   }
 
   let messages = await loadHistory(deps, sid)
@@ -700,35 +720,61 @@ async function loadHistory(
 
 /**
  * Build the LLM context from a bounded id list + parts. The newest compaction
- * message supplies the checkpoint summary; messages older than it are skipped.
- * Otherwise the whole chain is rebuilt verbatim.
+ * message supplies the checkpoint summary; only messages at or after its
+ * recorded tail boundary (`tail_from`) are kept verbatim — everything older
+ * is represented by the checkpoint. With no compaction message the whole
+ * chain is rebuilt verbatim.
  */
 function spliceContext(rows: ChainMessage[], parts: PartRow[]): ModelMessage[] {
-  const summaryByMsg = new Map<string, string>()
+  interface Cm {
+    summary: string
+    tailFrom: string | null
+  }
+  const cmByMsg = new Map<string, Cm>()
   for (const p of parts) {
     if (p.type !== 'summary') continue
     const d = parse(SummaryPartDataSchema, p.data)
-    if (d.isOk()) summaryByMsg.set(p.message_id, d.value.summary)
+    if (d.isOk()) {
+      cmByMsg.set(p.message_id, {
+        summary: d.value.summary,
+        tailFrom: d.value.tail_from ?? null,
+      })
+    }
   }
 
-  // Find the newest compaction message in the list.
-  let summary: string | null = null
-  let cutoff = rows.length
-  for (let i = 0; i < rows.length; i++) {
+  // rows are oldest-first; walk from the newest end to find the latest
+  // compaction message (chain may carry several).
+  let cm: Cm | null = null
+  let cmIndex = -1
+  for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i]
     if (row === undefined) continue
-    const s = summaryByMsg.get(row.id)
-    if (s !== undefined) {
-      summary = s
-      cutoff = i
+    const c = cmByMsg.get(row.id)
+    if (c !== undefined) {
+      cm = c
+      cmIndex = i
       break
     }
   }
 
-  const visibleRows = rows.slice(cutoff).filter(r => r.role !== COMPACTION_ROLE)
+  if (cm === null) {
+    return rebuildHistory(
+      rows.filter(r => r.role !== COMPACTION_ROLE),
+      parts,
+    )
+  }
+
+  // Prefer the recorded tail boundary; fall back to everything after the cm
+  // (legacy summaries written before tail_from existed).
+  let start = cmIndex + 1
+  if (cm.tailFrom !== null) {
+    const idx = rows.findIndex(r => r.id === cm.tailFrom)
+    if (idx >= 0) start = idx
+  }
+
+  const visibleRows = rows.slice(start).filter(r => r.role !== COMPACTION_ROLE)
   const history = rebuildHistory(visibleRows, parts)
-  if (summary === null) return history
-  return [{ role: 'user', content: checkpointContent(summary) }, ...history]
+  return [{ role: 'user', content: checkpointContent(cm.summary) }, ...history]
 }
 
 /**
@@ -788,16 +834,20 @@ export async function compactSession(
   }))
 
   const limit = await contextLimit(deps, modelId)
-  const { folded } = splitScan(entries, limit * 0.2, limit * 0.1)
+  const { tail, folded } = splitScan(entries, limit * 0.2, limit * 0.1)
   if (folded.length === 0) return ok(false)
 
   const summary = foldQA(folded)
   if (summary.trim() === '') return ok(false)
 
+  // tail is oldest-first; its first entry marks the verbatim boundary kept
+  // after this checkpoint.
+  const tailFromId = tail[0]?.id ?? null
+
   const insert = await Messages.insert(deps.db, COMPACTION_ROLE, tipId)
   if (insert.isErr()) return err(insert.error)
   const cmId = insert.value
-  const part = await Parts.insertSummary(deps.db, cmId, summary)
+  const part = await Parts.insertSummary(deps.db, cmId, summary, tailFromId)
   if (part.isErr()) return err(part.error)
   await Sessions.setTip(deps.db, sid, cmId)
 

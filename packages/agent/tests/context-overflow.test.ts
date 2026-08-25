@@ -33,8 +33,10 @@ describe('isContextOverflowFailure', () => {
   })
 
   it('detects overflow from status codes', () => {
+    // Bare 400 is NOT overflow (false positives trigger irreversible
+    // compaction); 413 is.
     expect(isContextOverflowFailure({ statusCode: 400, message: 'bad' })).toBe(
-      true,
+      false,
     )
     expect(
       isContextOverflowFailure({ statusCode: 413, message: 'large' }),

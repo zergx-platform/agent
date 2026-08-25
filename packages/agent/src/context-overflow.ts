@@ -53,6 +53,10 @@ export const isContextOverflowFailure = (failure: unknown) => {
   if (!parsed.success) return false
   const message = parsed.data.message
   if (message !== undefined && isContextOverflow(message)) return true
-  const code = parsed.data.statusCode
-  return code === 400 || code === 413
+  // No message to match: fall back to status code only for the unambiguous
+  // 413 (payload too large). A bare 400 is far more likely to be a model
+  // config/auth error than a context overflow, so it is deliberately NOT
+  // treated as overflow here — false positives trigger an irreversible
+  // compaction of the session history.
+  return parsed.data.statusCode === 413
 }
