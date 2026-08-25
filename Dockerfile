@@ -9,7 +9,7 @@ ENV HTTP_PROXY=${HTTP_PROXY} \
     HTTPS_PROXY=${HTTPS_PROXY} \
     NO_PROXY=localhost,127.0.0.1,.svc.cluster.local,.svc,.nip.io
 WORKDIR /build
-COPY package.json package-lock.json tsconfig.base.json ./
+COPY package.json package-lock.json tsconfig.base.json .npmrc ./
 COPY scripts scripts
 COPY packages packages
 RUN --mount=type=cache,target=/root/.npm \
