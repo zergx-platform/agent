@@ -684,7 +684,15 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
 
     return c.json({ ok: true, undone: true }, 200)
   })
-  .openapi(readRoute, async c => c.json({ ok: true }, 200))
+  .openapi(readRoute, async c => {
+    const deps = c.get('deps')
+    const sid = c.req.valid('param').id
+    const r = await Sessions.updateSettings(deps.db, sid, {
+      lastReadAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    })
+    void r
+    return c.json({ ok: true }, 200)
+  })
   .openapi(stateRoute, async c => {
     const deps = c.get('deps')
     const sid = c.req.valid('param').id

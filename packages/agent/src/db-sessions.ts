@@ -28,6 +28,7 @@ export interface SessionPatch {
   preset?: string
   maxTurns?: number
   systemPrompt?: string
+  lastReadAt?: string
 }
 
 export const Sessions = {
@@ -188,5 +189,6 @@ function patchToDrizzle(
   if (patch.preset !== undefined) set.preset = patch.preset
   if (patch.maxTurns !== undefined) set.maxTurns = patch.maxTurns
   if (patch.systemPrompt !== undefined) set.systemPrompt = patch.systemPrompt
+  if (patch.lastReadAt !== undefined) set.lastReadAt = patch.lastReadAt
   return set
 }

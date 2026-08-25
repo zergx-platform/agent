@@ -397,24 +397,34 @@ export class Bus {
   }
 
   /**
-   * Collect all retained messages on a durable subject via a single
-   * start-at-sequence-1 fetch with a large batch size. History is bounded by
-   * the stream's max_age, so a single pull is sufficient.
+   * Collect all retained messages on a durable subject via a
+   * start-at-sequence-1 fetch. The returned array stops at the stream's
+   * head-at-replay-start: a snapshot sequence is taken first, and fetching
+   * stops once a message at or past that sequence was seen, so a busy
+   * session's live events (which keep appending while we replay) are NOT
+   * followed all the way to the tail — those arrive over the live
+   * subscription instead.
    */
   replayAll(stream: string, subject: string): ResultAsync<unknown[], string> {
     return ResultAsync.fromPromise(
       (async () => {
+        // Snapshot the head sequence BEFORE consuming so the replay covers
+        // exactly the messages that existed at subscribe time.
+        const si = await (await this.js.streams.get(stream)).info()
+        const headSeq = si.state.last_seq
         const consumer = await this.js.consumers.get(stream, {
           filterSubjects: subject,
           deliver_policy: DeliverPolicy.StartSequence,
           opt_start_seq: 1,
         })
         const out: unknown[] = []
-        // Loop `fetch` until an empty batch (the fetch iterator ends with zero
-        // messages when nothing is left within the expiry) instead of a single
-        // fetch that truncates long replays at the expiry deadline.
+        if (headSeq <= 0) {
+          await consumer.delete()
+          return out
+        }
         for (;;) {
           let got = 0
+          let reachedHead = false
           const iter = await consumer.fetch({
             expires: 5000,
             max_messages: 10_000,
@@ -423,8 +433,12 @@ export class Bus {
             got++
             const parsed = parse(z.unknown(), Buffer.from(m.data))
             if (parsed.isOk()) out.push(parsed.value)
+            if (m.seq >= headSeq) {
+              reachedHead = true
+              break
+            }
           }
-          if (got === 0) break
+          if (reachedHead || got === 0) break
         }
         await consumer.delete()
         return out
