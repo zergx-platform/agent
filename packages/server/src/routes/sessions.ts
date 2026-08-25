@@ -1,6 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
-  type AgentDeps,
   compactSession,
   interruptRun,
   Mailbox,
@@ -9,7 +9,6 @@ import {
   Parts,
   parse,
   publishLifecycle,
-  runSessionTurn,
   Sessions,
   STREAM_SSE,
   sseSubject,
@@ -36,18 +35,6 @@ function sessionToJson(s: SessionRow): Record<string, unknown> {
 
 function err500(c: Context, message: string) {
   return c.json({ ok: false, error: message }, 500)
-}
-
-/**
- * Idempotent, reentrant trigger: attempt to claim the session's run lease and
- * run its mailbox to completion. Safe to call from every enqueue point and
- * every replica — exactly one claim wins.
- */
-function triggerClaim(deps: AgentDeps, sid: string): void {
-  void runSessionTurn(deps, sid).then(
-    () => {},
-    e => console.error(`[agent] turn crashed (${sid}): ${String(e)}`),
-  )
 }
 
 // ---- SSE: durable JetStream replay + live, deduped by eid ----
@@ -559,21 +546,18 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     await Parts.insert(deps.db, insert.value, 'text', 0, { text: prompt })
     await Sessions.setTip(deps.db, id, insert.value)
 
-    const enq = await Mailbox.enqueue(deps.db, id, 'user_prompt', {
-      text: prompt,
-    })
-    if (enq.isErr()) return err500(c, enq.error)
+    // Deliver the turn request over the durable mailbox queue. The agent's
+    // consumer persists it into PG and runs the turn; the HTTP route never
+    // writes the mailbox table directly.
+    const msgId = randomUUID()
+    const pub = await deps.bus.publishMailbox(
+      id,
+      'user_prompt',
+      { text: prompt },
+      msgId,
+    )
+    if (pub.isErr()) return err500(c, pub.error)
 
-    // Wake any replica via the durable mailbox subject. Every replica tries a
-    // claim; exactly one wins and drains the mailbox (idempotent, reentrant).
-    void deps.bus
-      .publishStream(mailboxSubject(id), {
-        type: 'user_prompt',
-        session_name: id,
-      })
-      .then(() => undefined)
-
-    void triggerClaim(deps, id)
     return c.json({ ok: true }, 200)
   })
   .openapi(forkRoute, async c => {
@@ -704,17 +688,15 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     const sid = c.req.valid('param').id
     // 1. Local mid-stream abort (this replica).
     interruptRun(sid)
-    // 2. Durable: enqueue + wake publish so the replica holding the session
-    //    aborts its in-flight stream.
-    const enq = await Mailbox.enqueue(deps.db, sid, 'interrupt', {})
-    if (enq.isErr()) return err500(c, enq.error)
+    // 2. Cross-replica abort: publish directly onto the mailbox wake subject.
+    //    Never enqueued in the mailbox table — whichever replica is running
+    //    the session watches this subject mid-stream and aborts immediately.
     void deps.bus
       .publishStream(mailboxSubject(sid), {
         type: 'interrupt',
         session_name: sid,
       })
       .then(() => undefined)
-    void triggerClaim(deps, sid)
     return c.json({ interrupted: true }, 200)
   })
   .openapi(compactRoute, async c => {

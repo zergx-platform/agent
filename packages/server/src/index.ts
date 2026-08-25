@@ -153,8 +153,9 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 
-  // Recovery: re-run turns for sessions whose prompts were enqueued while no
-  // replica was alive. The claim mechanism keeps this safe across replicas
+  // Recovery: re-run turns for sessions whose prompts were persisted into PG
+  // but whose turn never ran (e.g. replica died after ack before
+  // runSessionTurn). The claim mechanism keeps this safe across replicas
   // (exactly one wins the per-session lease).
   const pending = await Mailbox.pendingSessions(db)
   if (pending.isOk()) {

@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
 import {
+  AckPolicy,
   connect,
   DeliverPolicy,
   type JetStreamClient,
+  type JsMsg,
   type KV,
   type NatsConnection,
   RequestStrategy,
@@ -176,6 +178,57 @@ export class Bus {
    */
   subscribeMailboxWake(): ResultAsync<Subscription, string> {
     return this.subscribe(MAILBOX_WILDCARD)
+  }
+
+  /**
+   * Durable, load-shared consumption of the mailbox stream
+   * (`RCODER_MAILBOX`, subjects `mailbox.session.>`). Every replica calls
+   * this with the same durable name + queue group, so each JetStream message
+   * is delivered to exactly one replica, redelivered on crash (unacked), and
+   * the queue advances only via explicit ack — replacing the old fire-and-
+   * forget wake signal with an actual message queue the agent drains.
+   */
+  consumeMailbox(): ResultAsync<Sub<JsMsg>, string> {
+    return ResultAsync.fromPromise(
+      this.js.pullSubscribe(MAILBOX_WILDCARD, {
+        mack: true,
+        config: {
+          durable_name: 'agent-mailbox',
+          filter_subject: MAILBOX_WILDCARD,
+          ack_policy: AckPolicy.Explicit,
+          deliver_policy: DeliverPolicy.All,
+          ack_wait: 30_000_000_000, // 30s
+          max_deliver: -1,
+          max_ack_pending: 1024,
+        },
+      }),
+      e => `mailbox consumer: ${String(e)}`,
+    )
+  }
+
+  /**
+   * Publish one mailbox message (user_prompt / event) onto the durable stream.
+   * `msgId` dedupes publisher-side; a duplicate publish within the stream's
+   * duplicate window is rejected by the server.
+   */
+  publishMailbox(
+    sessionName: string,
+    type: 'user_prompt' | 'event',
+    payload: unknown,
+    msgId: string,
+  ): ResultAsync<void, string> {
+    return ResultAsync.fromPromise(
+      this.js
+        .publish(
+          mailboxSubject(sessionName),
+          Buffer.from(
+            JSON.stringify({ id: msgId, session_name: sessionName, type, payload }),
+          ),
+          { msgID: msgId },
+        )
+        .then(() => undefined),
+      e => `publish mailbox ${sessionName}: ${String(e)}`,
+    )
   }
 
   /**

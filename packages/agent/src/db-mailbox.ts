@@ -52,6 +52,36 @@ export const Mailbox = {
     ).map(() => id)
   },
 
+  /**
+   * Insert with a producer-supplied id, ignoring a duplicate row. The agent's
+   * NATS mailbox consumer uses this: a JetStream redelivery carries the same
+   * envelope id, so the second insert is a no-op and the message is never
+   * processed twice.
+   */
+  enqueueIdempotent(
+    db: Db,
+    id: string,
+    sessionName: string,
+    msgType: string,
+    payload: unknown,
+  ): ResultAsync<string, string> {
+    return q(
+      () =>
+        db
+          .insert(mailbox)
+          .values({
+            id,
+            sessionName,
+            msgType,
+            payload: JSON.stringify(payload ?? {}),
+            status: 'pending',
+            createdAt: nowStr(),
+          })
+          .onConflictDoNothing(),
+      'enqueue mailbox idempotent',
+    ).map(() => id)
+  },
+
   list(db: Db, sessionName: string): ResultAsync<MailboxRow[], string> {
     return q(
       () =>

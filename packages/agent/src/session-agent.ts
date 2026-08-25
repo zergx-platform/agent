@@ -26,6 +26,7 @@ import { rebuildHistory } from './history.js'
 import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
   ContentPayloadSchema,
+  MailboxEnvelopeSchema,
   parse,
   SummaryPartDataSchema,
   TextPartDataSchema,
@@ -46,35 +47,74 @@ export interface AgentDeps {
 const DRAIN_GRACE_MS = 200
 
 /**
- * Watch every session's mailbox wake wildcard and, for each arrival, attempt
- * an idempotent claim of that session's run lease. Because `runSessionTurn`
- * claims atomically and the losers return immediately, this lets any replica
- * pick up work for any session — the basis for horizontal scale-out.
+ * Watch the durable mailbox queue (`mailbox.session.>`): each replica joins
+ * the same durable consumer + queue group, so every message is delivered to
+ * exactly one replica. The handler parses the envelope, persists it into the
+ * PG `mailbox` table idempotently (producer id = row id), triggers the
+ * session turn, and acks. Bad envelopes are Term-ed; transient PG failures
+ * are Nak-ed for redelivery.
  *
  * Returns an unsubscribe function.
  */
 export function watchMailboxWake(deps: AgentDeps): () => void {
   let stopped = false
-  let unsubscribe: (() => void) | null = null
-  void deps.bus.subscribeMailboxWake().match(
+  let stop: (() => void) | null = null
+  void deps.bus.consumeMailbox().match(
     async sub => {
-      unsubscribe = () => sub.unsubscribe()
+      stop = () => {
+        void sub.unsubscribe()
+      }
       for await (const m of sub) {
         if (stopped) break
-        const parsed = parse(WakePayloadSchema, m.data)
-        if (parsed.isOk() && parsed.value.session_name !== '') {
-          void runSessionTurn(deps, parsed.value.session_name)
-        }
+        void handleMailboxMessage(deps, m)
       }
     },
     err => {
-      console.error(`[agent] mailbox wake subscribe failed: ${err}`)
+      console.error(`[agent] mailbox consumer failed: ${err}`)
     },
   )
   return () => {
     stopped = true
-    unsubscribe?.()
+    stop?.()
   }
+}
+
+/**
+ * Persist one durable mailbox message into PG, then wake the session's turn
+ * loop. Redelivery-safe: the envelope id is the PG row id, so a re-delivered
+ * message inserts no duplicate row.
+ */
+async function handleMailboxMessage(
+  deps: AgentDeps,
+  m: import('nats').JsMsg,
+): Promise<void> {
+  const parsed = parse(MailboxEnvelopeSchema, m.data)
+  if (parsed.isErr()) {
+    console.warn(`[agent] mailbox: bad envelope — discarding`)
+    m.term()
+    return
+  }
+  const env = parsed.value
+
+  const enq = await Mailbox.enqueueIdempotent(
+    deps.db,
+    env.id,
+    env.session_name,
+    env.type,
+    env.payload,
+  )
+  if (enq.isErr()) {
+    console.warn(`[agent] mailbox: enqueue failed — redelivering`)
+    m.nak(5000)
+    return
+  }
+  m.ack()
+
+  void runSessionTurn(deps, env.session_name).then(
+    () => {},
+    e =>
+      console.error(`[agent] turn crashed (${env.session_name}): ${String(e)}`),
+  )
 }
 
 /**
@@ -177,7 +217,11 @@ async function runTurnOnce(
   const ctrl = getAbortController(sid)
   pushEvent(deps.bus, sid, 'status', { type: 'busy' })
 
-  // Cross-replica mid-stream interrupt: watch the durable mailbox wake signal.
+  // Cross-replica mid-stream interrupt: watch the mailbox wake subject. The
+  // HTTP interrupt route publishes directly to this subject (never enqueued
+  // in the mailbox), so whichever replica is running the session aborts
+  // immediately; an event envelope also carries the same shape but is ignored
+  // here (only `interrupt` acts as an abort).
   const wakeRes = await deps.bus.subscribe(mailboxSubject(sid))
   let unsub: (() => void) | null = null
   if (wakeRes.isOk()) {

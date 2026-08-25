@@ -48,6 +48,21 @@ export const WakePayloadSchema = z.object({
 })
 export type WakePayload = z.infer<typeof WakePayloadSchema>
 
+/**
+ * The durable mailbox message carried end-to-end over NATS: extensions and
+ * the HTTP prompt route publish it; the agent's mailbox consumer parses it,
+ * persists a row in the `mailbox` table, and acks. `id` is the producer-
+ * generated row key (also used as the publisher-side msg-id) so JetStream
+ * redeliveries are idempotent at the PG layer.
+ */
+export const MailboxEnvelopeSchema = z.object({
+  id: z.string(),
+  session_name: z.string(),
+  type: z.enum(['user_prompt', 'event']),
+  payload: z.unknown(),
+})
+export type MailboxEnvelope = z.infer<typeof MailboxEnvelopeSchema>
+
 export const ContentPayloadSchema = z.object({
   content: z.string().optional(),
   text: z.string().optional(),
