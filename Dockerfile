@@ -14,6 +14,7 @@ COPY scripts scripts
 COPY packages packages
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts \
+    --strict-ssl=false \
     && npm rebuild esbuild \
     && npm run build
 
