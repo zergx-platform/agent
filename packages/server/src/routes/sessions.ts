@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto'
 import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
+import { Agent as AbepAgent } from 'abep-sdk'
 import {
   compactSession,
   interruptRun,
@@ -10,7 +10,6 @@ import {
   parse,
   publishLifecycle,
   Sessions,
-  STREAM_SSE,
   sseSubject,
 } from '@rucoder-agent/agent'
 import {
@@ -47,43 +46,43 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
   if (sid === undefined) {
     return c.json({ ok: false, error: 'session not found' }, 404)
   }
+  const agent = new AbepAgent(bus)
   return streamSSE(c, async stream => {
     const subject = sseSubject(sid)
 
     // Subscribe live BEFORE replaying so the handover can overlap, not drop.
-    const subRes = await bus.subscribe(subject)
-    if (subRes.isErr()) {
+    let sub
+    try {
+      sub = await bus.subscribe(subject)
+    } catch (e) {
       await stream.writeSSE({
         data: JSON.stringify({
           event: 'error',
-          params: { message: subRes.error },
+          params: { message: String(e) },
         }),
       })
       return
     }
-    const sub = subRes.value
 
     let closed = false
     stream.onAbort(() => {
       closed = true
-      sub.unsubscribe()
+      void sub.close()
     })
 
     const dedup = new EidDedup()
-    const replay = await bus.replayAll(STREAM_SSE, subject)
-    if (replay.isOk()) {
-      for (const raw of replay.value) {
-        const v = EidEventSchema.safeParse(raw)
-        if (!v.success) continue
-        dedup.mark(v.data.eid)
-        await stream.writeSSE({ data: JSON.stringify(raw) })
-      }
+    const replay = await agent.replayEvents(sid)
+    for (const raw of replay) {
+      const v = EidEventSchema.safeParse(raw)
+      if (!v.success) continue
+      dedup.mark(v.data.eid)
+      await stream.writeSSE({ data: JSON.stringify(raw) })
     }
     for await (const m of sub) {
       if (closed) break
-      const parsed = parse(EidEventSchema, Buffer.from(m.data))
-      if (!parsed.isOk()) continue
-      const v = parsed.value
+      const parsed = EidEventSchema.safeParse(m.payload)
+      if (!parsed.success) continue
+      const v = parsed.data
       if (dedup.duplicate(v.eid)) continue
       await stream.writeSSE({ data: JSON.stringify(v) })
     }
@@ -548,24 +547,21 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
 
     // Keep the cached context id list in sync so the turn's loadHistory does
     // not serve a stale cache missing this just-persisted user message.
-    void deps.bus.appendSessionId(id, insert.value)
+    void new AbepAgent(deps.bus).appendSessionId(id, insert.value)
 
     // Deliver the turn request over the durable mailbox queue. The agent's
     // consumer persists it into PG and runs the turn; the HTTP route never
     // writes the mailbox table directly.
-    const msgId = randomUUID()
-    const pub = await deps.bus.publishMailbox(
-      id,
-      'user_prompt',
-      { text: prompt },
-      msgId,
-    )
-    if (pub.isErr()) {
+    try {
+      await new AbepAgent(deps.bus).publishMailbox(id, 'user_prompt', {
+        text: prompt,
+      })
+    } catch (e) {
       // Roll the tip back so a failed delivery does not leave a dangling
       // user message with no turn to answer it.
       void Sessions.setTip(deps.db, id, tipId)
-      void deps.bus.deleteSessionIds(id)
-      return err500(c, pub.error)
+      void new AbepAgent(deps.bus).deleteSessionIds(id)
+      return err500(c, `mailbox publish failed: ${String(e)}`)
     }
 
     return c.json({ ok: true }, 200)
@@ -680,7 +676,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
 
     // The context id cache no longer matches the new tip; drop it so the next
     // load re-walks the chain.
-    void deps.bus.deleteSessionIds(sid)
+    void new AbepAgent(deps.bus).deleteSessionIds(sid)
 
     return c.json({ ok: true, undone: true }, 200)
   })
@@ -696,9 +692,8 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
   .openapi(stateRoute, async c => {
     const deps = c.get('deps')
     const sid = c.req.valid('param').id
-    const running = await deps.bus.isSessionRunning(sid)
-    const status = running.isOk() && running.value ? 'busy' : 'idle'
-    return c.json({ status, parts: [] }, 200)
+    const running = await new AbepAgent(deps.bus).isSessionRunning(sid)
+    return c.json({ status: running ? 'busy' : 'idle', parts: [] }, 200)
   })
   .openapi(mailboxRoute, async c => {
     const { db } = c.get('deps')
@@ -731,14 +726,11 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     //    Never enqueued in the mailbox table — whichever replica is running
     //    the session watches this subject mid-stream and aborts immediately.
     void deps.bus
-      .publishStream(mailboxSubject(sid), {
+      .publish(mailboxSubject(sid), {
         type: 'interrupt',
         session_name: sid,
       })
-      .then(
-        () => undefined,
-        () => undefined,
-      )
+      .catch(() => undefined)
     return c.json({ interrupted: true }, 200)
   })
   .openapi(compactRoute, async c => {

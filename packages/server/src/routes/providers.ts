@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
+import { Agent as AbepAgent } from 'abep-sdk'
 import { Providers, parse, validateApiType } from '@rucoder-agent/agent'
 import {
   ProviderBodySchema,
@@ -158,9 +159,8 @@ export const providerRoutes = new OpenAPIHono<AppEnv>()
   })
   .openapi(getCatalogRoute, async c => {
     const { bus } = c.get('deps')
-    const result = await bus.getModelsDev()
-    if (result.isErr()) return c.json({ ok: false, error: result.error }, 500)
-    return c.json({ catalog: result.value ?? {} }, 200)
+    const catalog = await new AbepAgent(bus).getModelsDev()
+    return c.json({ catalog: catalog ?? {} }, 200)
   })
   .openapi(registerProviderRoute, async c => {
     const deps = c.get('deps')
