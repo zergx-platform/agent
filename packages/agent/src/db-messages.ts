@@ -59,6 +59,33 @@ export const Messages = {
     )
   },
 
+  /**
+   * True when `target` is reachable by walking `prev_id` backwards from
+   * `tip` — i.e. `target` belongs to this session's chain (COW forks share
+   * ancestors, so a message from another session's chain must not move our
+   * tip onto it).
+   */
+  isInChain(
+    db: Db,
+    tipId: string,
+    targetId: string,
+  ): ResultAsync<boolean, string> {
+    if (tipId === targetId) {
+      return ResultAsync.fromSafePromise(Promise.resolve(true))
+    }
+    return q(async () => {
+      const rows = await db.$client`
+        WITH RECURSIVE chain AS (
+          SELECT id, prev_id FROM messages WHERE id = ${tipId}
+          UNION
+          SELECT m.id, m.prev_id
+          FROM messages m JOIN chain c ON m.id = c.prev_id
+        )
+        SELECT 1 FROM chain WHERE id = ${targetId} LIMIT 1`
+      return rows.length > 0
+    }, 'message in chain')
+  },
+
   /** Messages for a set of ids, oldest-first by chain order (cache hit path). */
   byIds(db: Db, ids: string[]): ResultAsync<ChainMessage[], string> {
     if (ids.length === 0) {

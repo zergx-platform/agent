@@ -12,6 +12,8 @@ export const sessions = pgTable('sessions', {
   preset: text('preset').notNull().default(''),
   tipId: text('tip_id'),
   lastReadAt: text('last_read_at'),
+  maxTurns: integer('max_turns').notNull().default(0),
+  systemPrompt: text('system_prompt').notNull().default(''),
   inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
   outputTokens: bigint('output_tokens', { mode: 'number' })
     .notNull()

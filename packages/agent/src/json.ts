@@ -58,7 +58,7 @@ export type WakePayload = z.infer<typeof WakePayloadSchema>
 export const MailboxEnvelopeSchema = z.object({
   id: z.string(),
   session_name: z.string(),
-  type: z.enum(['user_prompt', 'event']),
+  type: z.string(),
   payload: z.unknown(),
 })
 export type MailboxEnvelope = z.infer<typeof MailboxEnvelopeSchema>

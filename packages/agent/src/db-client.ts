@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     preset TEXT NOT NULL DEFAULT '',
     tip_id TEXT,
     last_read_at TEXT,
+    max_turns INTEGER NOT NULL DEFAULT 0,
+    system_prompt TEXT NOT NULL DEFAULT '',
     input_tokens BIGINT NOT NULL DEFAULT 0,
     output_tokens BIGINT NOT NULL DEFAULT 0,
     total_tokens BIGINT NOT NULL DEFAULT 0,
@@ -174,6 +176,13 @@ export function connectDb(url: string): ResultAsync<Db, string> {
  */
 async function migrateSchema(sql: Sql): Promise<void> {
   await sql.unsafe(DDL)
+  // Additive migration: sessions.max_turns / system_prompt added after the
+  // initial table existed in the wild. CREATE IF NOT EXISTS won't add them
+  // to an existing table, so backfill missing columns idempotently.
+  await sql.unsafe(`
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_turns INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS system_prompt TEXT NOT NULL DEFAULT '';
+  `)
 }
 
 async function importProviders(sql: Sql): Promise<void> {

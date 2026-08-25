@@ -5,7 +5,7 @@ import { err, ok, type Result } from 'neverthrow'
 import type { Sql } from 'postgres'
 import { z } from 'zod'
 import type { Bus } from './bus.js'
-import { mailboxSubject } from './bus.js'
+import { mailboxSubject, SESSION_LEASE_MS } from './bus.js'
 import {
   COMPACTION_ROLE,
   checkpointContent,
@@ -143,16 +143,27 @@ export async function runSessionTurn(
       console.warn(`[agent] claim error (${sid}): ${claimed.error}`)
       return
     }
-    if (claimed.value === false) {
+    if (claimed.value === null) {
       // Another replica is running this session; it will drain our message.
       return
     }
+    const revision = claimed.value
+
+    // Renew the lease on a timer (TTL/3) so a long-running turn — the drain
+    // loop awaits handleItem for minutes at a time — cannot be re-claimed by
+    // a competing replica after the 30s TTL lapses.
+    const renewTimer = setInterval(() => {
+      void deps.bus.renewSession(sid, revision).then(ok => {
+        if (ok.isOk() && ok.value === false) {
+          console.warn(
+            `[agent] lease lost for ${sid}: another replica may be running it`,
+          )
+        }
+      })
+    }, SESSION_LEASE_MS / 3)
 
     try {
       for (;;) {
-        // Renew the lease so a long-running turn can't be re-claimed by a
-        // concurrent replica after the 30s TTL lapses.
-        void deps.bus.renewSession(sid)
         const item = await drainOne(deps, sid)
         if (item === null) {
           // Re-drain after a short grace to close the enqueue/drain race.
@@ -165,6 +176,7 @@ export async function runSessionTurn(
         await handleItem(deps, sid, item)
       }
     } finally {
+      clearInterval(renewTimer)
       await deps.bus.releaseSession(sid)
     }
 

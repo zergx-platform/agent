@@ -13,6 +13,8 @@ const toRow = (r: Row): SessionRow => ({
   preset: r.preset,
   tip_id: r.tipId,
   last_read_at: r.lastReadAt,
+  max_turns: r.maxTurns,
+  system_prompt: r.systemPrompt,
   input_tokens: Number(r.inputTokens),
   output_tokens: Number(r.outputTokens),
   total_tokens: Number(r.totalTokens),
@@ -24,6 +26,8 @@ const toRow = (r: Row): SessionRow => ({
 export interface SessionPatch {
   model?: string
   preset?: string
+  maxTurns?: number
+  systemPrompt?: string
 }
 
 export const Sessions = {
@@ -182,5 +186,7 @@ function patchToDrizzle(
   const set: Partial<typeof sessions.$inferInsert> = { updatedAt }
   if (patch.model !== undefined) set.model = patch.model
   if (patch.preset !== undefined) set.preset = patch.preset
+  if (patch.maxTurns !== undefined) set.maxTurns = patch.maxTurns
+  if (patch.systemPrompt !== undefined) set.systemPrompt = patch.systemPrompt
   return set
 }

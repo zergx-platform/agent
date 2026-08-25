@@ -560,7 +560,13 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
       { text: prompt },
       msgId,
     )
-    if (pub.isErr()) return err500(c, pub.error)
+    if (pub.isErr()) {
+      // Roll the tip back so a failed delivery does not leave a dangling
+      // user message with no turn to answer it.
+      void Sessions.setTip(deps.db, id, tipId)
+      void deps.bus.deleteSessionIds(id)
+      return err500(c, pub.error)
+    }
 
     return c.json({ ok: true }, 200)
   })
@@ -624,7 +630,12 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     })
     if (created.isErr()) return err500(c, created.error)
     const removed = await Sessions.delete(deps.db, oldName)
-    if (removed.isErr()) return err500(c, removed.error)
+    if (removed.isErr()) {
+      // Roll the fork back so a failed delete never leaves two sessions
+      // pointing at the same tip.
+      void Sessions.delete(deps.db, b.name)
+      return err500(c, removed.error)
+    }
     publishLifecycle(deps.bus, 'renamed', { from: oldName, to: b.name })
     return c.json({ ok: true, session_name: b.name }, 200)
   })
@@ -655,6 +666,14 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     if (target.isErr()) return err500(c, target.error)
     if (target.value === null) return c.json({ ok: false, undone: false }, 200)
 
+    // The undo target must belong to this session's chain; a tip pointer onto
+    // a foreign session's message would hijack the chain.
+    const inChain = await Messages.isInChain(deps.db, tip, targetId)
+    if (inChain.isErr()) return err500(c, inChain.error)
+    if (!inChain.value) {
+      return c.json({ ok: false, undone: false }, 200)
+    }
+
     // undo == move the tip pointer back; messages are append-only and never
     // physically deleted (COW). At the chain head this becomes a no-op.
     await Sessions.setTip(deps.db, sid, target.value.prev_id)
@@ -666,7 +685,13 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     return c.json({ ok: true, undone: true }, 200)
   })
   .openapi(readRoute, async c => c.json({ ok: true }, 200))
-  .openapi(stateRoute, async c => c.json({ status: 'idle', parts: [] }, 200))
+  .openapi(stateRoute, async c => {
+    const deps = c.get('deps')
+    const sid = c.req.valid('param').id
+    const running = await deps.bus.isSessionRunning(sid)
+    const status = running.isOk() && running.value ? 'busy' : 'idle'
+    return c.json({ status, parts: [] }, 200)
+  })
   .openapi(mailboxRoute, async c => {
     const { db } = c.get('deps')
     const r = await Mailbox.list(db, c.req.valid('param').id)
@@ -679,6 +704,8 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     const r = await Sessions.updateSettings(db, sid, {
       model: b.model,
       preset: b.preset,
+      maxTurns: b.max_turns,
+      systemPrompt: b.system_prompt,
     })
     if (r.isErr()) return err500(c, r.error)
     const s = await Sessions.get(db, sid)

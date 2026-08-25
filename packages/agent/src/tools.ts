@@ -3,6 +3,7 @@ import {
   type ExtensionTool,
 } from '@rucoder-agent/schema'
 import { jsonSchema, type Tool } from 'ai'
+import type { Subscription } from 'nats'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { Bus } from './bus.js'
@@ -145,33 +146,43 @@ export function invokeToolViaBus(
     )
     .andThen(sub =>
       ResultAsync.fromPromise(
-        Promise.race([firstResult(sub, name), timeout(name, timeoutMs)]),
+        firstResult(sub, name, timeoutMs),
         e => `tool '${name}': ${String(e)}`,
       ).andThen(env => resolveContent(bus, env)),
     )
 }
 
 function firstResult(
-  sub: AsyncIterable<{ data: Uint8Array }>,
+  sub: Subscription,
   name: string,
+  timeoutMs: number,
 ): Promise<ToolResultEnvelope> {
   return new Promise((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      sub.unsubscribe()
+      reject(new Error(`tool '${name}' timed out`))
+    }, timeoutMs)
     void (async () => {
       for await (const m of sub) {
+        if (settled) return
         const parsed = parse(ToolResultEnvelopeSchema, m.data)
         if (parsed.isOk()) {
+          settled = true
+          clearTimeout(timer)
+          sub.unsubscribe()
           resolve(parsed.value)
           return
         }
       }
-      reject(new Error(`tool '${name}' result stream closed`))
+      if (!settled) {
+        settled = true
+        clearTimeout(timer)
+        reject(new Error(`tool '${name}' result stream closed`))
+      }
     })()
-  })
-}
-
-function timeout(name: string, timeoutMs: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(`tool '${name}' timed out`)), timeoutMs)
   })
 }
 

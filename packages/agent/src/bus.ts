@@ -79,7 +79,7 @@ const DAY_NS = 24 * 3600 * 1_000_000_000
 export const SESSION_IDS_TTL_MS = 24 * 3600 * 1000
 
 /** Lease TTL for per-session run-state keys (ms). */
-const SESSION_LEASE_MS = 30_000
+export const SESSION_LEASE_MS = 30_000
 
 export interface WakeMessage {
   session_name: string
@@ -243,11 +243,13 @@ export class Bus {
    * Atomically claim the per-session run state: `create` fails if the key
    * already exists (someone else is running), so exactly one replica wins.
    * The key carries a TTL so a crashed holder is automatically released.
+   * Returns the KV revision on success (needed to renew without resurrecting
+   * a lease we no longer own), or `null` when another replica holds it.
    */
-  claimSession(sid: string): ResultAsync<boolean, string> {
+  claimSession(sid: string): ResultAsync<number | null, string> {
     const key = natsToken(sid)
     return ResultAsync.fromPromise(
-      this.sessionState.create(key, Buffer.from('running')).then(() => true),
+      this.sessionState.create(key, Buffer.from('running')),
       e => (e instanceof Error ? e : new Error(String(e))),
     ).orElse(err => {
       // KV `create` throws a NatsError with `api_error.err_code === 10071`
@@ -257,12 +259,13 @@ export class Bus {
       const code = (err as { api_error?: { err_code?: number } }).api_error
         ?.err_code
       if (code === 10071) {
-        return ResultAsync.fromSafePromise<boolean, string>(
-          Promise.resolve(false),
+        return ResultAsync.fromSafePromise<number | null, string>(
+          Promise.resolve(null),
         )
       }
-      return ResultAsync.fromPromise<boolean, string>(Promise.reject(err), e =>
-        String(e),
+      return ResultAsync.fromPromise<number | null, string>(
+        Promise.reject(err),
+        e => String(e),
       )
     })
   }
@@ -275,19 +278,38 @@ export class Bus {
     )
   }
 
+  /** True while the per-session run lease is held (someone is running it). */
+  isSessionRunning(sid: string): ResultAsync<boolean, string> {
+    return ResultAsync.fromPromise(
+      this.sessionState.get(natsToken(sid)).then(e => e !== null),
+      e => `session running ${sid}: ${String(e)}`,
+    )
+  }
+
   /**
-   * Extend the per-session lease TTL (a turn can outlive the 30s TTL). Only
-   * the current holder should renew; renewing a key we do not own would
-   * resurrect a lease after a competing claim, so a renew that finds the key
-   * absent simply no-ops.
+   * Extend the per-session lease TTL (a turn can outlive the 30s TTL). Uses
+   * a compare-and-swap `update(key, value, revision)`: the call fails if the
+   * key no longer exists or a competing holder changed its revision, so a
+   * stale holder can never resurrect a lease it lost.
    */
-  renewSession(sid: string): ResultAsync<void, string> {
+  renewSession(sid: string, revision: number): ResultAsync<boolean, string> {
     return ResultAsync.fromPromise(
       this.sessionState
-        .put(natsToken(sid), Buffer.from('running'))
-        .then(() => undefined),
-      e => `renew session ${sid}: ${String(e)}`,
-    )
+        .update(natsToken(sid), Buffer.from('running'), revision)
+        .then(() => true),
+      e => (e instanceof Error ? e : new Error(String(e))),
+    ).orElse(err => {
+      const code = (err as { api_error?: { err_code?: number } }).api_error
+        ?.err_code
+      if (code === 10071) {
+        return ResultAsync.fromSafePromise<boolean, string>(
+          Promise.resolve(false),
+        )
+      }
+      return ResultAsync.fromPromise<boolean, string>(Promise.reject(err), e =>
+        String(e),
+      )
+    })
   }
 
   /** Read the cached session context id list, if present. */
@@ -381,15 +403,22 @@ export class Bus {
           opt_start_seq: 1,
         })
         const out: unknown[] = []
-        const iter = await consumer.fetch({
-          expires: 2000,
-          max_messages: 100_000,
-        })
-        for await (const m of iter) {
-          const parsed = parse(z.unknown(), Buffer.from(m.data))
-          if (parsed.isOk()) out.push(parsed.value)
+        // Loop `fetch` until an empty batch (the fetch iterator ends with zero
+        // messages when nothing is left within the expiry) instead of a single
+        // fetch that truncates long replays at the expiry deadline.
+        for (;;) {
+          let got = 0
+          const iter = await consumer.fetch({
+            expires: 5000,
+            max_messages: 10_000,
+          })
+          for await (const m of iter) {
+            got++
+            const parsed = parse(z.unknown(), Buffer.from(m.data))
+            if (parsed.isOk()) out.push(parsed.value)
+          }
+          if (got === 0) break
         }
-        await iter.close()
         await consumer.delete()
         return out
       })(),

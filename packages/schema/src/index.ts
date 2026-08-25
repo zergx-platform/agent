@@ -35,6 +35,8 @@ export const SessionRowSchema = z.object({
   preset: z.string(),
   tip_id: z.string().nullable(),
   last_read_at: z.string().nullable(),
+  max_turns: z.number().int(),
+  system_prompt: z.string(),
   input_tokens: z.number().int(),
   output_tokens: z.number().int(),
   total_tokens: z.number().int(),

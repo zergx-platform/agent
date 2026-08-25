@@ -31,6 +31,9 @@ function fakeBus() {
           })
       yield { data: Buffer.from(data) }
     },
+    unsubscribe: () => {
+      /* fake bus has no real subscription to tear down */
+    },
   })
 
   const bus = {
