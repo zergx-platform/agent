@@ -21,9 +21,10 @@ describe('handleMailboxMessage', () => {
     const enqueue = vi
       .spyOn(Mailbox, 'enqueueIdempotent')
       .mockReturnValue(ok('e1') as never)
+    const claim = vi.fn().mockReturnValue(ok(null))
     const deps = {
       db: {},
-      bus: {},
+      bus: { claimSession: claim },
       config: {},
       llm: {},
     } as unknown as AgentDeps
@@ -41,6 +42,30 @@ describe('handleMailboxMessage', () => {
     })
     expect(msg.calls).toContain('ack')
     enqueue.mockRestore()
+  })
+
+  it('triggers the session turn after ack', async () => {
+    vi.spyOn(Mailbox, 'enqueueIdempotent').mockReturnValue(ok('e1') as never)
+    const claim = vi.fn().mockReturnValue(ok(null))
+    const deps = {
+      db: {},
+      bus: { claimSession: claim },
+      config: {},
+      llm: {},
+    } as unknown as AgentDeps
+
+    const msg = fakeMsg({
+      id: 'e1',
+      session_name: 'a:b:main',
+      type: 'event',
+      payload: { text: 'hi' },
+    })
+    await handleMailboxMessage(deps, msg as never)
+
+    // runSessionTurn is fire-and-forget; the mock claim returns contention
+    // (null) so the turn exits immediately after being invoked.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(claim).toHaveBeenCalledWith('a:b:main')
   })
 
   it('terms a malformed envelope', async () => {
