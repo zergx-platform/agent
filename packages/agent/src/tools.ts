@@ -31,6 +31,20 @@ export interface DiscoveredTool {
 }
 
 /**
+ * Wire-safe qualified name for a discovered tool: `name` when the name is
+ * unique across extensions, `extId.name` when it collides. This is the exact
+ * key used in the AI-tool set and in preset whitelists.
+ */
+export function toolQualifiedName(
+  discovered: DiscoveredTool[],
+  t: DiscoveredTool,
+): string {
+  return discovered.filter(d => d.name === t.name).length > 1
+    ? `${t.extId}.${t.name}`
+    : t.name
+}
+
+/**
  * Discover tools from all extensions via a NATS broadcast. Every extension
  * that declares `tools` capability contributes its tool manifests; a reply
  * that fails validation is skipped.
@@ -275,10 +289,7 @@ export function buildAiTools(
     // Two extensions may expose the same bare tool name; the AI SDK tool set
     // is keyed by name, so a collision would silently drop one. Namespace the
     // AI-tool key by extension id while keeping the wire tool name intact.
-    const aiName =
-      discovered.filter(d => d.name === t.name).length > 1
-        ? `${t.extId}.${t.name}`
-        : t.name
+    const aiName = toolQualifiedName(discovered, t)
     if (tools[aiName] !== undefined) continue
     tools[aiName] = {
       description: t.description,

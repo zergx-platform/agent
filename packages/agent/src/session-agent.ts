@@ -35,7 +35,7 @@ import {
 } from './json.js'
 import { type LlmRegistry, resolveContextLimit } from './llm.js'
 import { logger } from './logger.js'
-import { buildAiTools, discoverToolsCached } from './tools.js'
+import { buildAiTools, discoverToolsCached, toolQualifiedName } from './tools.js'
 
 export interface AgentDeps {
   db: Db
@@ -515,7 +515,7 @@ async function prepare(
   const active =
     whitelist === null
       ? discovered
-      : discovered.filter(t => whitelist.has(t.name))
+      : discovered.filter(t => whitelist.has(toolQualifiedName(discovered, t)))
   const tools = buildAiTools(active, deps.bus, deps.config.toolTimeoutMs, sid)
 
   // Session-level settings (PATCH /sessions/{id}/settings) override the

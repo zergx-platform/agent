@@ -5,6 +5,7 @@ import {
   type DiscoveredTool,
   discoverToolsCached,
   invalidateDiscoveryCache,
+  toolQualifiedName,
 } from '../src/tools.js'
 
 interface Published {
@@ -130,6 +131,39 @@ describe('buildAiTools session_name envelope', () => {
     )
     await tools.read.execute({}, execOpts('c4'))
     expect(replies[0]).toBe('abep.tool.result.c4')
+  })
+})
+
+describe('toolQualifiedName (whitelist keys)', () => {
+  const readRepo: DiscoveredTool = {
+    extId: 'repo',
+    name: 'read',
+    description: 'r',
+    inputSchema: {},
+  }
+  const readMemory: DiscoveredTool = {
+    extId: 'memory',
+    name: 'read',
+    description: 'm',
+    inputSchema: {},
+  }
+  const unique: DiscoveredTool = {
+    extId: 'repo',
+    name: 'write',
+    description: 'w',
+    inputSchema: {},
+  }
+
+  it('uses bare name when unique across extensions', () => {
+    expect(toolQualifiedName([readRepo, unique], readRepo)).toBe('read')
+    expect(toolQualifiedName([readRepo, unique], unique)).toBe('write')
+  })
+
+  it('namespaces by extId on collision', () => {
+    const all = [readRepo, readMemory, unique]
+    expect(toolQualifiedName(all, readRepo)).toBe('repo.read')
+    expect(toolQualifiedName(all, readMemory)).toBe('memory.read')
+    expect(toolQualifiedName(all, unique)).toBe('write')
   })
 })
 
