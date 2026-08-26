@@ -60,7 +60,7 @@ function fakeBus() {
 }
 
 const tool: DiscoveredTool = {
-  extId: 'repo-extension',
+  extId: 'repo',
   name: 'read',
   description: 'read a file',
   inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
@@ -68,19 +68,19 @@ const tool: DiscoveredTool = {
 
 const execOpts = (toolCallId: string) => ({ toolCallId, messages: [] }) as never
 
-describe('buildAiTools _session injection', () => {
-  it('injects _session into tool call arguments when sessionId given', async () => {
+describe('buildAiTools session_name envelope', () => {
+  it('carries session_name envelope when sessionId given', async () => {
     const { bus, published } = fakeBus()
     const tools = buildAiTools([tool], bus, 500, 'acme--api--main')
     const result = await tools.read.execute({ path: 'x' }, execOpts('c1'))
     expect(result).toEqual({ content: 'ok', metadata: null })
     const call = published.find(
-      p => p.subject === 'abep.tool.call.repo-extension.read',
+      p => p.subject === 'abep.tool.call.repo.read',
     )
     expect(call?.payload).toEqual({
       call_id: 'c1',
       session_name: 'acme--api--main',
-      arguments: { path: 'x', _session: 'acme--api--main' },
+      arguments: { path: 'x' },
     })
   })
 
@@ -89,7 +89,7 @@ describe('buildAiTools _session injection', () => {
     const tools = buildAiTools([tool], bus, 500)
     await tools.read.execute({ path: 'x' }, execOpts('c2'))
     const call = published.find(
-      p => p.subject === 'abep.tool.call.repo-extension.read',
+      p => p.subject === 'abep.tool.call.repo.read',
     )
     expect(call?.payload).toEqual({
       call_id: 'c2',
@@ -103,7 +103,7 @@ describe('buildAiTools _session injection', () => {
     const tools = buildAiTools([tool], bus, 500, 's')
     await tools.read.execute({}, execOpts('c3'))
     expect(log[0]).toBe('sub:abep.tool.result.c3')
-    expect(log[1]).toBe('pub:abep.tool.call.repo-extension.read')
+    expect(log[1]).toBe('pub:abep.tool.call.repo.read')
   })
 
   it('publishes with reply=tool.result.{call_id} (extension SDKs need it)', async () => {

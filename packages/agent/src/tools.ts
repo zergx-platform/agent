@@ -259,11 +259,10 @@ function raceTimeout<T>(
 }
 
 /**
- * Build the AI SDK tool set from discovered manifests. When `sessionId` is
- * given, it is injected into every call as the out-of-band `_session`
- * argument: tool servers resolve it to their workspace context (repo +
- * bookmark). The argument is not part of any tool schema, so the model can
- * neither see nor forge it.
+ * Build the AI SDK tool set from discovered manifests. `sessionId`, when
+ * given, rides the first-class `session_name` envelope field (carried by
+ * AbepAgent.callTool) — it is NOT injected into tool arguments, so the model
+ * can neither see nor forge it.
  */
 export function buildAiTools(
   discovered: DiscoveredTool[],
@@ -289,31 +288,23 @@ export function buildAiTools(
             args: Record<string, unknown>,
             options: { toolCallId: string },
           ) {
-            const callArgs =
-              sessionId === undefined
-                ? (args ?? {})
-                : { ...(args ?? {}), _session: sessionId }
             yield* invokeToolStreamViaBus(
               bus,
               t.extId,
               t.name,
               options.toolCallId,
-              callArgs,
+              args ?? {},
               timeoutMs,
               sessionId,
             )
           } as never)
         : async (args, { toolCallId }) => {
-            const callArgs =
-              sessionId === undefined
-                ? (args ?? {})
-                : { ...(args ?? {}), _session: sessionId }
             const result = await invokeToolViaBus(
               bus,
               t.extId,
               t.name,
               toolCallId,
-              callArgs,
+              args ?? {},
               timeoutMs,
               sessionId,
             )
