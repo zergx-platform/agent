@@ -35,7 +35,11 @@ import {
 } from './json.js'
 import { type LlmRegistry, resolveContextLimit } from './llm.js'
 import { logger } from './logger.js'
-import { buildAiTools, discoverToolsCached, toolQualifiedName } from './tools.js'
+import {
+  buildAiTools,
+  discoverToolsCached,
+  toolQualifiedName,
+} from './tools.js'
 
 export interface AgentDeps {
   db: Db
@@ -121,7 +125,8 @@ export async function handleMailboxMessage(
 
   void runSessionTurn(deps, env.session_name).then(
     () => {},
-    e => logger.error({ sid: env.session_name, err: String(e) }, 'turn crashed'),
+    e =>
+      logger.error({ sid: env.session_name, err: String(e) }, 'turn crashed'),
   )
 }
 
@@ -358,15 +363,6 @@ async function runTurnOnce(
               })
               break
             case 'tool-result':
-              if (part.preliminary === true) {
-                // Streamed progress: shown to the UI, never fed to the model.
-                pushEvent(deps.bus, sid, 'tool-delta', {
-                  toolCallId: part.toolCallId,
-                  toolName: part.toolName,
-                  content: part.output.content,
-                })
-                break
-              }
               toolResults.push({
                 id: part.toolCallId,
                 name: part.toolName,

@@ -89,15 +89,6 @@
             { toolCallId: c.data.toolCallId, toolName: c.data.toolName, state: 'running', log: '' },
           ]
         }
-      } else if (data.event === 'tool-delta') {
-        const d = SseParamsSchema.safeParse(p)
-        if (d.success && 'content' in d.data) {
-          toolLogs = toolLogs.map(t =>
-            t.toolCallId === d.data.toolCallId
-              ? { ...t, log: t.log + d.data.content }
-              : t,
-          )
-        }
       } else if (data.event === 'tool-result') {
         const r = SseParamsSchema.safeParse(p)
         if (r.success && 'toolName' in r.data) {

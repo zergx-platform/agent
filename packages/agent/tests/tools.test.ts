@@ -75,9 +75,7 @@ describe('buildAiTools session_name envelope', () => {
     const tools = buildAiTools([tool], bus, 500, 'acme--api--main')
     const result = await tools.read.execute({ path: 'x' }, execOpts('c1'))
     expect(result).toEqual({ content: 'ok', metadata: null })
-    const call = published.find(
-      p => p.subject === 'abep.tool.call.repo.read',
-    )
+    const call = published.find(p => p.subject === 'abep.tool.call.repo.read')
     expect(call?.payload).toEqual({
       call_id: 'c1',
       session_name: 'acme--api--main',
@@ -89,9 +87,7 @@ describe('buildAiTools session_name envelope', () => {
     const { bus, published } = fakeBus()
     const tools = buildAiTools([tool], bus, 500)
     await tools.read.execute({ path: 'x' }, execOpts('c2'))
-    const call = published.find(
-      p => p.subject === 'abep.tool.call.repo.read',
-    )
+    const call = published.find(p => p.subject === 'abep.tool.call.repo.read')
     expect(call?.payload).toEqual({
       call_id: 'c2',
       session_name: '',
