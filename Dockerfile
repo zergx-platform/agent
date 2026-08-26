@@ -20,7 +20,8 @@ RUN --mount=type=cache,target=/root/.npm \
 # The binary embeds Node, all JS dependencies and the SPA; the runtime stage
 # needs only libc + CA certs.
 FROM ${REGISTRY}/alpine:3.24
-RUN apk add --no-cache ca-certificates libstdc++
+RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories \
+    && apk add --no-cache ca-certificates libstdc++
 COPY --from=build /build/.sea/rucoder-agent /usr/local/bin/rucoder-agent
 ENV RUCODER_PORT=8080
 EXPOSE 8080
