@@ -4,9 +4,9 @@ import {
   ExtensionManifestSchema,
   MailboxRowSchema,
   ProviderJsonSchema,
-  SSEEnvelopeSchema,
-  SessionRowSchema,
   parse,
+  SessionRowSchema,
+  SSEEnvelopeSchema,
 } from '../src/index.js'
 
 describe('parse', () => {

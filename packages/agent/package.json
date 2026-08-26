@@ -26,7 +26,7 @@
     "neverthrow": "^8.2.0",
     "postgres": "^3.4.9",
     "zod": "^4.4.3",
-    "abep-sdk": "0.1.7",
+    "abep-sdk": "0.2.0",
     "abep-sdk-nats": "0.1.5"
   },
   "devDependencies": {

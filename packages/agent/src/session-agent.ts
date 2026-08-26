@@ -532,7 +532,12 @@ async function prepare(
   // Render extension-provided template variables ({{ext.<id>.<name>}}) and
   // built-ins ({{date}}/{{datetime}}) into the system prompt. Unresolvable
   // variables are left as literal placeholders.
-  const renderedPrompt = await renderTemplate(systemPrompt, deps.bus)
+  const sessionName = sid
+  const renderedPrompt = await renderTemplate(
+    systemPrompt,
+    deps.bus,
+    sessionName,
+  )
 
   const maxTurns =
     session.max_turns > 0

@@ -2,30 +2,23 @@ import {
   ExtensionManifestSchema,
   type ExtensionVariable,
   ExtensionVariableSchema,
-  ExtensionVariableValueSchema,
 } from '@rucoder-agent/schema'
+import { Agent as AbepAgent } from 'abep-sdk'
 import { ResultAsync } from 'neverthrow'
 import type { Bus } from './bus.js'
 import { parse } from './json.js'
 
 /**
- * Extension-server discovery + template-variable resolution over NATS.
+ * Extension-server discovery + template-variable resolution over the bus.
  *
  * There is no HTTP discovery and no static server list: an extension is any
- * NATS client that (a) subscribes to `rucoder.extension.discover` and replies
- * with its `ExtensionManifestSchema` JSON, and (b) optionally answers
- * `extension.{id}.prompt.variable.{name}` requests with an
- * `ExtensionVariableValueSchema` reply. This keeps the contract language
- * agnostic — Go/Rust/Python clients generate their types from
- * `dist/extension-schema.json`.
+ * bus client that (a) subscribes to `abep.discover` and replies with its
+ * `ExtensionManifestSchema` JSON, and (b) optionally answers
+ * `abep.var.{id}.{name}` requests (lazy variable fallback).
  */
 
 /** Subject an extension must subscribe to for discovery. */
 export const EXTENSION_DISCOVER_SUBJECT = 'abep.discover'
-
-/** Subject a variable-resolution request goes to. */
-export const extVariableSubject = (id: string, name: string) =>
-  `abep.var.${id}.${name}`
 
 /** A discovered extension with its declared template variables. */
 export interface ResolvedExtension {
@@ -33,10 +26,10 @@ export interface ResolvedExtension {
   variables: ExtensionVariable[]
 }
 
-const VAR_TOKEN = /\{\{ext\.([^.}]+)\.([^}]+)\}\}/g
+const VAR_TOKEN = /\{\{vars\.([^.}]+)\.([^}]+)\}\}/g
 
 /**
- * Discover every reachable prompt-capable extension via a NATS broadcast.
+ * Discover every reachable prompt-capable extension via a broadcast.
  * Each reply is validated against `ExtensionManifestSchema`; malformed replies
  * are skipped. Returns after `maxWaitMs` has elapsed.
  */
@@ -66,30 +59,6 @@ export function discoverExtensions(
   })
 }
 
-/**
- * Resolve one extension template variable to a string. Returns an `ok` with the
- * value, or an `err` describing the failure (callers leave the literal
- * `{{ext...}}` placeholder in place on error, per the preview contract).
- */
-export function resolveExtensionVariable(
-  bus: Bus,
-  id: string,
-  name: string,
-): ResultAsync<string, string> {
-  return ResultAsync.fromPromise(
-    bus.request(extVariableSubject(id, name), { name }),
-    e => `resolve ${id}.${name}: ${String(e)}`,
-  ).andThen(env => {
-    const r = parse(ExtensionVariableValueSchema, JSON.stringify(env.payload))
-    if (r.isErr()) {
-      return ResultAsync.fromSafePromise<string, string>(
-        Promise.reject(new Error(r.error)),
-      )
-    }
-    return ResultAsync.fromSafePromise(Promise.resolve(r.value.value))
-  })
-}
-
 /** Built-in variables the agent resolves itself (no extension required). */
 function builtinVariableValue(name: string): string | null {
   switch (name) {
@@ -103,35 +72,40 @@ function builtinVariableValue(name: string): string | null {
 }
 
 /**
- * Render a system-prompt template, substituting `{{ext.<id>.<name>}}` tokens
- * (resolved over NATS) and built-in `{{date}}` / `{{datetime}}` tokens. Tokens
- * that cannot be resolved are left as literal placeholders.
+ * Render a system-prompt template, substituting `{{vars.<provider>.<name>}}`
+ * tokens:
+ *   - `vars.builtin.*`     → date / datetime (agent-local)
+ *   - `vars.agent.*`       → agent-owned variables (KV)
+ *   - `vars.<extId>.*`     → extension variables (KV, lazy fallback)
+ *
+ * `sessionName`, when given, scopes session variables; without it (preview)
+ * only global variables resolve and session variables stay literal.
  */
 export async function renderTemplate(
   template: string,
   bus: Bus,
+  sessionName?: string,
 ): Promise<string> {
   const matches = [...template.matchAll(VAR_TOKEN)]
   if (matches.length === 0) return template
 
+  const agent = new AbepAgent(bus)
   let out = template
   for (const match of matches) {
-    const [full, id, name] = match
-    // The VAR_TOKEN regex guarantees all three groups on a match; the guard
-    // exists purely so the compiler sees it too.
-    if (full === undefined || id === undefined || name === undefined) {
+    const [full, provider, name] = match
+    if (full === undefined || provider === undefined || name === undefined) {
       continue
     }
 
-    const builtin = builtinVariableValue(name)
-    if (builtin !== null) {
-      out = out.split(full).join(builtin)
-      continue
+    let value: string | null = null
+    if (provider === 'builtin') {
+      value = builtinVariableValue(name)
+    } else {
+      value = await agent.resolveVariable(provider, name, sessionName)
     }
 
-    const resolved = await resolveExtensionVariable(bus, id, name)
-    if (resolved.isOk()) {
-      out = out.split(full).join(resolved.value)
+    if (value !== null) {
+      out = out.split(full).join(value)
     }
   }
   return out
