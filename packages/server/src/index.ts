@@ -7,6 +7,7 @@ import {
   type Db,
   LlmRegistry,
   loadConfig,
+  logger,
   Mailbox,
   refreshModelsDev,
   runSessionTurn,
@@ -96,14 +97,14 @@ async function main(): Promise<void> {
 
   const dbRes = await connectDb(config.postgresUrl)
   if (dbRes.isErr()) {
-    console.error(`[server] ${dbRes.error}`)
+    logger.error({ err: dbRes.error }, 'db connect failed')
     process.exit(1)
   }
   const db: Db = dbRes.value
 
   const busRes = await connectBus(config.natsUrl)
   if (busRes.isErr()) {
-    console.error(`[server] ${busRes.error} (event bus is required)`)
+    logger.error({ err: busRes.error }, 'event bus connect failed (required)')
     process.exit(1)
   }
   const bus: Bus = busRes.value
@@ -133,7 +134,7 @@ async function main(): Promise<void> {
       if (err.res) return c.newResponse(err.res.body, err.res)
       return c.json({ ok: false, error: err.message }, err.status)
     }
-    console.error('[server] unhandled error:', err)
+    logger.error({ err }, 'unhandled error')
     return c.json({ ok: false, error: 'Internal Server Error' }, 500)
   })
 
@@ -150,17 +151,15 @@ async function main(): Promise<void> {
   // failing fetch is non-fatal — the catalog is a prefill convenience.
   void refreshModelsDev(bus).then(
     () => {},
-    e => console.warn(`[server] ${e}`),
+    e => logger.warn({ err: String(e) }, 'models.dev refresh failed'),
   )
 
   const server = serve({ fetch: servingApp.fetch, port: config.port }, info => {
-    console.log(
-      `[server] rucoder-agent-ts listening on :${info.port} (pid ${process.pid})`,
-    )
+    logger.info({ port: info.port, pid: process.pid }, 'listening')
   })
 
   const shutdown = () => {
-    console.log('[server] shutting down')
+    logger.info('shutting down')
     stopWake()
     server.close(() => {
       bus.close()
@@ -183,8 +182,7 @@ async function main(): Promise<void> {
     for (const sid of pending.value) {
       void runSessionTurn(deps, sid).then(
         () => {},
-        e =>
-          console.error(`[agent] recovery turn crashed (${sid}): ${String(e)}`),
+        e => logger.error({ sid, err: String(e) }, 'recovery turn crashed'),
       )
     }
   }

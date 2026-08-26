@@ -10,6 +10,7 @@ import { z } from 'zod'
 import type { ServerConfig } from './config.js'
 import type { Db } from './db-client.js'
 import { findProviderForModel, Providers } from './db-providers.js'
+import { logger } from './logger.js'
 import { parse } from './json.js'
 
 const HeadersSchema = z.record(z.string(), z.string())
@@ -177,8 +178,9 @@ export class LlmRegistry {
         return ok({ model: built.value, modelId })
       }
       // Invalid provider row: log-and-fallthrough to the default below.
-      console.warn(
-        `[lib-llm] provider ${hit.provider_id} unusable: ${built.error}`,
+      logger.warn(
+        { provider: hit.provider_id, err: built.error },
+        'provider unusable, falling back',
       )
     }
     const fallback = buildModelForApiType(

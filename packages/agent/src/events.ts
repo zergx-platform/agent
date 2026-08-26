@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Bus } from './bus.js'
 import { sseSubject } from './bus.js'
+import { logger } from './logger.js'
 
 export interface AgentEventDeps {
   bus: Bus
@@ -23,7 +24,7 @@ export function pushEvent(
       { id: randomUUID() },
     )
     .catch(err => {
-      console.warn(`[agent] sse publish failed (${sid}): ${String(err)}`)
+      logger.warn({ sid, err: String(err) }, 'sse publish failed')
     })
 }
 
@@ -69,8 +70,6 @@ export function publishLifecycle(
       { id: randomUUID() },
     )
     .catch(err => {
-      console.warn(
-        `[agent] lifecycle publish failed (${event}): ${String(err)}`,
-      )
+      logger.warn({ event, err: String(err) }, 'lifecycle publish failed')
     })
 }

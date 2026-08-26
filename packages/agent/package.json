@@ -24,6 +24,7 @@
     "ai": "^7.0.73",
     "drizzle-orm": "^1.0.0-rc.4",
     "neverthrow": "^8.2.0",
+    "pino": "^10.3.1",
     "postgres": "^3.4.9",
     "zod": "^4.4.3",
     "abep-sdk": "0.2.0",

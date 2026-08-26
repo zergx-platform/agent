@@ -34,6 +34,7 @@ import {
   WakePayloadSchema,
 } from './json.js'
 import { type LlmRegistry, resolveContextLimit } from './llm.js'
+import { logger } from './logger.js'
 import { buildAiTools, discoverToolsCached } from './tools.js'
 
 export interface AgentDeps {
@@ -70,7 +71,7 @@ export function watchMailboxWake(deps: AgentDeps): () => void {
         stop = shutdown
       },
       err => {
-        console.error(`[agent] mailbox consumer failed: ${String(err)}`)
+        logger.error({ err: String(err) }, 'mailbox consumer failed')
       },
     )
   return () => {
@@ -104,12 +105,14 @@ export async function handleMailboxMessage(
   )
   if (enq.isErr()) {
     if (isForeignKeyViolation(enq.error)) {
-      console.warn(
-        `[agent] mailbox: session ${env.session_name} missing — discarding`,
+      logger.warn(
+        { sid: env.session_name },
+        'mailbox: session missing — discarding',
       )
     } else {
-      console.warn(
-        `[agent] mailbox: enqueue failed — ${enq.error} — redelivering`,
+      logger.warn(
+        { sid: env.session_name, err: String(enq.error) },
+        'mailbox: enqueue failed — redelivering',
       )
       throw enq.error
     }
@@ -118,8 +121,7 @@ export async function handleMailboxMessage(
 
   void runSessionTurn(deps, env.session_name).then(
     () => {},
-    e =>
-      console.error(`[agent] turn crashed (${env.session_name}): ${String(e)}`),
+    e => logger.error({ sid: env.session_name, err: String(e) }, 'turn crashed'),
   )
 }
 
@@ -140,7 +142,7 @@ export async function runSessionTurn(
     try {
       revision = await agent.claimSession(sid)
     } catch (e) {
-      console.warn(`[agent] claim error (${sid}): ${String(e)}`)
+      logger.warn({ sid, err: String(e) }, 'claim error')
       return
     }
     if (revision === null) {
@@ -157,15 +159,16 @@ export async function runSessionTurn(
       void agent.renewSession(sid, revision as number).then(
         next => {
           if (next === null) {
-            console.warn(
-              `[agent] lease lost for ${sid}: another replica may be running it`,
+            logger.warn(
+              { sid },
+              'lease lost: another replica may be running it',
             )
             return
           }
           revision = next
         },
         err => {
-          console.warn(`[agent] renew session ${sid} failed: ${String(err)}`)
+          logger.warn({ sid, err: String(err) }, 'renew session failed')
         },
       )
     }, SESSION_LEASE_MS / 3)
@@ -274,7 +277,7 @@ async function runTurnOnce(
           if (parsed.isOk() && parsed.value.type === 'interrupt') ctrl.abort()
         }
       } catch (err) {
-        console.warn(`[agent] wake watcher stopped (${sid}): ${String(err)}`)
+        logger.warn({ sid, err: String(err) }, 'wake watcher stopped')
       }
     })()
   }
@@ -583,7 +586,7 @@ async function persistStep(
   const prevId = tipRes.isErr() ? null : tipRes.value
   const insert = await Messages.insert(deps.db, 'assistant', prevId)
   if (insert.isErr()) {
-    console.error(`[agent] persist step failed (${sid}): ${insert.error}`)
+    logger.error({ sid, err: String(insert.error) }, 'persist step failed')
     return
   }
   const messageId = insert.value

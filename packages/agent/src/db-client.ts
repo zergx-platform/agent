@@ -2,6 +2,7 @@ import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { ResultAsync } from 'neverthrow'
 import postgres, { type Sql } from 'postgres'
 import { z } from 'zod'
+import { logger } from './logger.js'
 import { parse } from './json.js'
 
 /** The drizzle database handle, with its underlying postgres.js `$client`. */
@@ -227,7 +228,7 @@ async function importProviders(sql: Sql): Promise<void> {
   }
   await sql`UPDATE config SET value = '{}' WHERE key = 'providers'`
   if (imported > 0) {
-    console.log(`[agent] imported ${imported} providers from config table`)
+    logger.info({ imported }, 'imported providers from config table')
   }
 }
 
