@@ -134,13 +134,18 @@ export function invokeToolViaBus(
   callId: string,
   args: Record<string, unknown>,
   timeoutMs: number,
+  sessionName?: string,
 ): ResultAsync<ToolResult, string> {
   return ResultAsync.fromPromise(
     (async () => {
       const sub = await bus.subscribe(toolResultSubject(callId))
       await bus.publish(
         toolCallSubject(extId, name),
-        { call_id: callId, arguments: args },
+        {
+          call_id: callId,
+          ...(sessionName !== undefined ? { session_name: sessionName } : {}),
+          arguments: args,
+        },
         toolResultSubject(callId),
       )
       return sub
@@ -169,13 +174,18 @@ export async function* invokeToolStreamViaBus(
   callId: string,
   args: Record<string, unknown>,
   timeoutMs: number,
+  sessionName?: string,
 ): AsyncGenerator<ToolResult> {
   let sub: Awaited<ReturnType<Bus['subscribe']>>
   try {
     sub = await bus.subscribe(toolResultSubject(callId))
     await bus.publish(
       toolCallSubject(extId, name),
-      { call_id: callId, arguments: args },
+      {
+        call_id: callId,
+        ...(sessionName !== undefined ? { session_name: sessionName } : {}),
+        arguments: args,
+      },
       toolResultSubject(callId),
     )
   } catch (e) {
@@ -338,6 +348,7 @@ export function buildAiTools(
               options.toolCallId,
               callArgs,
               timeoutMs,
+              sessionId,
             )
           } as never)
         : async (args, { toolCallId }) => {
@@ -352,6 +363,7 @@ export function buildAiTools(
               toolCallId,
               callArgs,
               timeoutMs,
+              sessionId,
             )
             return result.match(
               output => output,

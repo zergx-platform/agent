@@ -33,8 +33,9 @@ export const Agent = AbepAgent
 
 // wire subject helpers (abep protocol subjects, prefix `abep.`)
 export const toolCallSubject = (extId: string, name: string) =>
-  `tool.call.${extId}.${name}`
-export const toolResultSubject = (callId: string) => `tool.result.${callId}`
+  `abep.tool.call.${extId}.${name}`
+export const toolResultSubject = (callId: string) =>
+  `abep.tool.result.${callId}`
 export const mailboxSubject = (sid: string) => `abep.mailbox.${natsToken(sid)}`
 export const sseSubject = (sid: string) =>
   `abep.session.events.${natsToken(sid)}`

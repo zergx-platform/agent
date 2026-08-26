@@ -38,8 +38,8 @@ function fakeBus() {
   const bus = {
     subscribe: (subject: string) => {
       log.push(`sub:${subject}`)
-      const sub = subject.startsWith('tool.result.')
-        ? makeSub(subject.slice('tool.result.'.length))
+      const sub = subject.startsWith('abep.tool.result.')
+        ? makeSub(subject.slice('abep.tool.result.'.length))
         : makeSub('')
       return Promise.resolve(sub)
     },
@@ -75,10 +75,11 @@ describe('buildAiTools _session injection', () => {
     const result = await tools.read.execute({ path: 'x' }, execOpts('c1'))
     expect(result).toEqual({ content: 'ok', metadata: null })
     const call = published.find(
-      p => p.subject === 'tool.call.repo-extension.read',
+      p => p.subject === 'abep.tool.call.repo-extension.read',
     )
     expect(call?.payload).toEqual({
       call_id: 'c1',
+      session_name: 'acme--api--main',
       arguments: { path: 'x', _session: 'acme--api--main' },
     })
   })
@@ -88,7 +89,7 @@ describe('buildAiTools _session injection', () => {
     const tools = buildAiTools([tool], bus, 500)
     await tools.read.execute({ path: 'x' }, execOpts('c2'))
     const call = published.find(
-      p => p.subject === 'tool.call.repo-extension.read',
+      p => p.subject === 'abep.tool.call.repo-extension.read',
     )
     expect(call?.payload).toEqual({
       call_id: 'c2',
@@ -100,8 +101,8 @@ describe('buildAiTools _session injection', () => {
     const { bus, log } = fakeBus()
     const tools = buildAiTools([tool], bus, 500, 's')
     await tools.read.execute({}, execOpts('c3'))
-    expect(log[0]).toBe('sub:tool.result.c3')
-    expect(log[1]).toBe('pub:tool.call.repo-extension.read')
+    expect(log[0]).toBe('sub:abep.tool.result.c3')
+    expect(log[1]).toBe('pub:abep.tool.call.repo-extension.read')
   })
 
   it('publishes with reply=tool.result.{call_id} (extension SDKs need it)', async () => {
@@ -127,7 +128,7 @@ describe('buildAiTools _session injection', () => {
       's',
     )
     await tools.read.execute({}, execOpts('c4'))
-    expect(replies[0]).toBe('tool.result.c4')
+    expect(replies[0]).toBe('abep.tool.result.c4')
   })
 })
 
