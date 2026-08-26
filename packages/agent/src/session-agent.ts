@@ -516,6 +516,14 @@ async function prepare(
     whitelist === null
       ? discovered
       : discovered.filter(t => whitelist.has(toolQualifiedName(discovered, t)))
+  logger.info(
+    {
+      sid,
+      tools: active.map(t => toolQualifiedName(discovered, t)),
+      whitelisted: whitelist !== null,
+    },
+    'tools prepared for turn',
+  )
   const tools = buildAiTools(active, deps.bus, deps.config.toolTimeoutMs, sid)
 
   // Session-level settings (PATCH /sessions/{id}/settings) override the
