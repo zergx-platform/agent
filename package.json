@@ -24,7 +24,6 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.33.0",
-    "abep-sdk": "^0.1.6"
+    "@lucide/svelte": "^1.33.0"
   }
 }
