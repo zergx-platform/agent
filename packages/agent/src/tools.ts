@@ -2,20 +2,16 @@ import {
   ExtensionManifestSchema,
   type ExtensionTool,
 } from '@rucoder-agent/schema'
-import type { Subscription } from 'abep-sdk'
-import { Agent as AbepAgent } from 'abep-sdk'
+import {
+  Agent as AbepAgent,
+  type ToolResult as AbepToolResult,
+} from 'abep-sdk'
 import { jsonSchema, type Tool } from 'ai'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { Bus } from './bus.js'
-import { toolCallSubject, toolResultSubject } from './bus.js'
 import { EXTENSION_DISCOVER_SUBJECT } from './extensions.js'
-import {
-  parse,
-  type ToolResult,
-  type ToolResultEnvelope,
-  ToolResultEnvelopeSchema,
-} from './json.js'
+import { parse, type ToolResult } from './json.js'
 
 export const ToolManifestSchema = z.object({
   name: z.string(),
@@ -122,10 +118,10 @@ function toolToDiscovered(extId: string, t: ExtensionTool): DiscoveredTool {
 }
 
 /**
- * Invoke one tool over the NATS async request/reply contract: publish the
- * ToolCallEnvelope to `tool.call.{name}`, await the envelope (or Object
- * Store blob) on `tool.result.{call_id}`. Subscribe BEFORE publishing so an
- * instantly-answering tool server cannot race us.
+ * Invoke one tool over the abep async request/reply contract via the SDK's
+ * Agent.callTool (correct `abep.tool.call.*` / `abep.tool.result.*` subjects
+ * and a first-class `session_name` envelope field). Returns the terminal
+ * ToolResult or a neverthrow error.
  */
 export function invokeToolViaBus(
   bus: Bus,
@@ -137,35 +133,23 @@ export function invokeToolViaBus(
   sessionName?: string,
 ): ResultAsync<ToolResult, string> {
   return ResultAsync.fromPromise(
-    (async () => {
-      const sub = await bus.subscribe(toolResultSubject(callId))
-      await bus.publish(
-        toolCallSubject(extId, name),
-        {
-          call_id: callId,
-          ...(sessionName !== undefined ? { session_name: sessionName } : {}),
-          arguments: args,
-        },
-        toolResultSubject(callId),
-      )
-      return sub
-    })(),
+    collectFinal(new AbepAgent(bus).callTool(
+      sessionName ?? '',
+      extId,
+      name,
+      callId,
+      args,
+      () => {},
+    ), name, timeoutMs),
     e => `tool '${name}': ${String(e)}`,
-  ).andThen(sub =>
-    ResultAsync.fromPromise(
-      firstResult(sub, name, timeoutMs),
-      e => `tool '${name}': ${String(e)}`,
-    ).andThen(env => resolveContent(bus, env)),
   )
 }
 
 /**
- * Streamed tool invocation: subscribe to `tool.result.{call_id}` and yield a
- * ToolResult per envelope. Envelopes with `stream:"delta"` are progress
- * chunks (yielded as content, metadata null); the `stream:"final"` (or
- * legacy stream-less) envelope terminates the stream as the last yielded
- * value. The AI SDK turns each yield into a `preliminary` tool-result part
- * and the final one into the real result.
+ * Streamed tool invocation via the SDK's Agent.callTool: progress deltas are
+ * yielded as ToolResults (metadata null), then the terminal result. The AI
+ * SDK turns each yield into a `preliminary` tool-result part and the final
+ * one into the real result.
  */
 export async function* invokeToolStreamViaBus(
   bus: Bus,
@@ -176,17 +160,15 @@ export async function* invokeToolStreamViaBus(
   timeoutMs: number,
   sessionName?: string,
 ): AsyncGenerator<ToolResult> {
-  let sub: Awaited<ReturnType<Bus['subscribe']>>
+  let it: AsyncGenerator<AbepToolResult> | null = null
   try {
-    sub = await bus.subscribe(toolResultSubject(callId))
-    await bus.publish(
-      toolCallSubject(extId, name),
-      {
-        call_id: callId,
-        ...(sessionName !== undefined ? { session_name: sessionName } : {}),
-        arguments: args,
-      },
-      toolResultSubject(callId),
+    it = new AbepAgent(bus).callTool(
+      sessionName ?? '',
+      extId,
+      name,
+      callId,
+      args,
+      () => {},
     )
   } catch (e) {
     yield { content: `tool '${name}' failed: ${String(e)}`, metadata: null }
@@ -196,114 +178,84 @@ export async function* invokeToolStreamViaBus(
   let timedOut = false
   const deadline = setTimeout(() => {
     timedOut = true
-    sub.close()
   }, timeoutMs)
-  const finish = () => {
-    clearTimeout(deadline)
-    sub.close()
-  }
-
   try {
-    for await (const m of sub) {
-      if (timedOut) break
-      const parsed = parse(ToolResultEnvelopeSchema, JSON.stringify(m.payload))
-      if (!parsed.isOk()) {
-        continue
+    let done = false
+    while (!done && !timedOut) {
+      const raced = await raceTimeout(
+        it.next(),
+        timeoutMs,
+      )
+      if (raced === 'timeout') {
+        timedOut = true
+        break
       }
-      const env = parsed.value
-      const resolved = await resolveContent(bus, env)
-      if (resolved.isErr()) {
-        yield {
-          content: `tool '${name}' failed: ${resolved.error}`,
-          metadata: null,
-        }
-        return
+      if (raced.kind === 'throw') {
+        throw raced.e
       }
-      if (env.stream === 'final' || env.stream === undefined) {
-        yield resolved.value
-        return
+      if (raced.r.done === true) break
+      const value = raced.r.value
+      const isFinal = value.stream === 'final'
+      const metadata = value.metadata ?? null
+      yield { content: value.content, metadata: isFinal ? metadata : null }
+      if (isFinal) {
+        done = true
       }
-      // progress delta
-      yield { content: resolved.value.content, metadata: null }
     }
-    yield {
-      content: timedOut
-        ? `tool '${name}' timed out`
-        : `tool '${name}' result stream closed`,
-      metadata: null,
+    if (!done) {
+      yield {
+        content: timedOut
+          ? `tool '${name}' timed out`
+          : `tool '${name}' result stream closed`,
+        metadata: null,
+      }
+      done = true
     }
+  } catch (e) {
+    yield { content: `tool '${name}' failed: ${String(e)}`, metadata: null }
   } finally {
-    finish()
+    clearTimeout(deadline)
   }
 }
 
-function firstResult(
-  sub: Subscription,
+/** Await an Agent.callTool stream until its terminal ToolResult. */
+async function collectFinal(
+  stream: AsyncGenerator<AbepToolResult>,
   name: string,
   timeoutMs: number,
-): Promise<ToolResultEnvelope> {
-  return new Promise((resolve, reject) => {
-    let settled = false
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true
-      sub.close()
-      reject(new Error(`tool '${name}' timed out`))
-    }, timeoutMs)
-    void (async () => {
-      try {
-        for await (const m of sub) {
-          if (settled) return
-          const parsed = parse(
-            ToolResultEnvelopeSchema,
-            JSON.stringify(m.payload),
-          )
-          if (parsed.isOk()) {
-            settled = true
-            clearTimeout(timer)
-            sub.close()
-            resolve(parsed.value)
-            return
-          }
-        }
-        if (!settled) {
-          settled = true
-          clearTimeout(timer)
-          reject(new Error(`tool '${name}' result stream closed`))
-        }
-      } catch (err) {
-        if (!settled) {
-          settled = true
-          clearTimeout(timer)
-          reject(err instanceof Error ? err : new Error(String(err)))
-        }
-      }
-    })()
-  })
+): Promise<ToolResult> {
+  let last: AbepToolResult | null = null
+  const deadline = setTimeout(() => {
+    throw new Error(`tool '${name}' timed out`)
+  }, timeoutMs)
+  try {
+    for await (const r of stream) {
+      last = r
+    }
+    if (last === null) {
+      throw new Error(`tool '${name}' result stream closed`)
+    }
+    return { content: last.content, metadata: last.metadata ?? null }
+  } finally {
+    clearTimeout(deadline)
+  }
 }
 
-/**
- * Normalize an envelope into the canonical ToolResult. When a large payload
- * was offloaded to the Object Store (`content_object`), the full text is
- * fetched back; `metadata` is always forwarded from the envelope verbatim.
- */
-function resolveContent(
-  bus: Bus,
-  env: ToolResultEnvelope,
-): ResultAsync<ToolResult, string> {
-  if (env.content_object !== undefined) {
-    const agent = new AbepAgent(bus)
-    return ResultAsync.fromPromise(
-      agent.getObject(env.content_object),
-      e => `object get: ${String(e)}`,
-    ).map(bytes => ({
-      content: bytes === null ? '' : Buffer.from(bytes).toString(),
-      metadata: env.metadata,
-    }))
-  }
-  return ResultAsync.fromSafePromise(
-    Promise.resolve({ content: env.content, metadata: env.metadata }),
-  )
+type Iteration<T> = { kind: 'next'; r: IteratorResult<T> } | { kind: 'throw'; e: unknown }
+
+function raceTimeout<T>(
+  p: Promise<IteratorResult<T>>,
+  timeoutMs: number,
+): Promise<Iteration<T> | 'timeout'> {
+  return Promise.race([
+    p.then(
+      r => ({ kind: 'next' as const, r }),
+      e => ({ kind: 'throw' as const, e }),
+    ),
+    new Promise<'timeout'>(resolve => {
+      setTimeout(() => resolve('timeout'), timeoutMs)
+    }),
+  ])
 }
 
 /**

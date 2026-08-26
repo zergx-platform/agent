@@ -93,6 +93,7 @@ describe('buildAiTools _session injection', () => {
     )
     expect(call?.payload).toEqual({
       call_id: 'c2',
+      session_name: '',
       arguments: { path: 'x' },
     })
   })
