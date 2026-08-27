@@ -263,11 +263,11 @@ async function runTurnOnce(
   deps: AgentDeps,
   sid: string,
 ): Promise<string | null> {
-  const prepared = await prepare(deps, sid)
+  const ctrl = getAbortController(sid)
+  const prepared = await prepare(deps, sid, ctrl.signal)
   if (typeof prepared === 'string') return prepared
   const { tools, system, maxTurns, model } = prepared
 
-  const ctrl = getAbortController(sid)
   pushEvent(deps.bus, sid, 'status', { type: 'busy' })
 
   // Cross-replica mid-stream interrupt: watch the mailbox wake subject. The
@@ -497,6 +497,7 @@ async function runTurnOnce(
 async function prepare(
   deps: AgentDeps,
   sid: string,
+  abortSignal: AbortSignal,
 ): Promise<TurnCtx | string> {
   const sessionRes = await Sessions.get(deps.db, sid)
   if (sessionRes.isErr()) return sessionRes.error
@@ -524,7 +525,13 @@ async function prepare(
     },
     'tools prepared for turn',
   )
-  const tools = buildAiTools(active, deps.bus, deps.config.toolTimeoutMs, sid)
+  const tools = buildAiTools(
+    active,
+    deps.bus,
+    deps.config.toolTimeoutMs,
+    sid,
+    abortSignal,
+  )
 
   // Session-level settings (PATCH /sessions/{id}/settings) override the
   // preset; the preset overrides the config default.

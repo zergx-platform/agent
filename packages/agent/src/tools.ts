@@ -135,6 +135,7 @@ export function buildAiTools(
   bus: Bus,
   timeoutMs: number,
   sessionId?: string,
+  abortSignal?: AbortSignal,
 ): Record<string, Tool<Record<string, unknown>, ToolResult>> {
   const tools: Record<string, Tool<Record<string, unknown>, ToolResult>> = {}
   for (const t of discovered) {
@@ -157,6 +158,7 @@ export function buildAiTools(
           ),
           timeoutMs,
           t.name,
+          abortSignal,
         )
       },
     }
@@ -174,6 +176,7 @@ async function raceFinal(
   p: Promise<{ content: string; metadata?: unknown }>,
   timeoutMs: number,
   name: string,
+  abortSignal?: AbortSignal,
 ): Promise<ToolResult> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<ToolResult>(resolve => {
@@ -181,10 +184,24 @@ async function raceFinal(
       resolve({ content: `tool '${name}' timed out`, metadata: null })
     }, timeoutMs)
   })
+  // Interrupt (stop button) must also cancel an in-flight tool call, not just
+  // the LLM stream: resolve early the moment the abort signal fires so a long
+  // tool (e.g. sandbox-job-wait) cannot block the turn past an interrupt.
+  const aborted = new Promise<ToolResult>(resolve => {
+    const onAbort = () =>
+      resolve({ content: `tool '${name}' interrupted`, metadata: null })
+    if (abortSignal === undefined) return
+    if (abortSignal.aborted) {
+      onAbort()
+      return
+    }
+    abortSignal.addEventListener('abort', onAbort, { once: true })
+  })
   try {
     return await Promise.race([
       p.then(r => ({ content: r.content, metadata: r.metadata ?? null })),
       deadline,
+      aborted,
     ]).catch(e => ({
       content: `tool '${name}' failed: ${String(e)}`,
       metadata: null,
