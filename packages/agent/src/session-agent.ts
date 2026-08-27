@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { PartRow } from '@rucoder-agent/schema'
 import { Agent as AbepAgent } from 'abep-sdk'
 import type { ModelMessage, Tool } from 'ai'
@@ -95,7 +96,9 @@ export async function handleMailboxMessage(
   msg: { id: string; session_name: string; type: string; payload?: unknown },
 ): Promise<void> {
   const env = {
-    id: msg.id,
+    // Defensive: a wake-style message without a producer id would fail the
+    // uuid-typed PG key on '' and poison the consumer; mint one instead.
+    id: msg.id || randomUUID(),
     session_name: msg.session_name,
     type: msg.type,
     payload: msg.payload,
