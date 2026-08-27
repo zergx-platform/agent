@@ -270,15 +270,15 @@ const listModelsRoute = createRoute({
   },
 })
 
-// ---- recore config ----
+// ---- rucoder config ----
 
-const recoreConfigRoute = createRoute({
+const rucoderConfigRoute = createRoute({
   method: 'get',
-  path: '/recore-config',
-  summary: 'Recore config',
+  path: '/rucoder-config',
+  summary: 'Rucoder config',
   responses: {
     200: {
-      description: 'Recore config',
+      description: 'Rucoder config',
       content: { 'application/json': { schema: z.unknown() } },
     },
     500: {
@@ -410,7 +410,7 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
       models.unshift(llm.defaultModelId())
     return c.json({ models: models.map(id => ({ id, name: id })) }, 200)
   })
-  .openapi(recoreConfigRoute, async c => {
+  .openapi(rucoderConfigRoute, async c => {
     const deps = c.get('deps')
     const r = await Providers.list(deps.db)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
