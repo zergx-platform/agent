@@ -93,6 +93,18 @@ function seaStatic() {
 }
 
 async function main(): Promise<void> {
+  // Process-level safety nets: log instead of crash. Node >=15 terminates the
+  // process on unhandled rejections by default, so one stray floating promise
+  // (e.g. a NATS blip during a fire-and-forget bookkeeping call) must never
+  // take the whole agent down.
+  process.on('unhandledRejection', reason => {
+    logger.error({ reason: String(reason) }, 'unhandledRejection')
+  })
+  process.on('uncaughtException', err => {
+    logger.error({ err: String(err) }, 'uncaughtException — exiting')
+    setTimeout(() => process.exit(1), 1000).unref()
+  })
+
   const config = loadConfig()
 
   const dbRes = await connectDb(config.postgresUrl)

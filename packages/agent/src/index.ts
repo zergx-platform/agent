@@ -1,3 +1,4 @@
+export * from './async.js'
 export * from './bus.js'
 export * from './compaction.js'
 export * from './config.js'

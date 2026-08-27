@@ -2,8 +2,8 @@ import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { ResultAsync } from 'neverthrow'
 import postgres, { type Sql } from 'postgres'
 import { z } from 'zod'
-import { logger } from './logger.js'
 import { parse } from './json.js'
+import { logger } from './logger.js'
 
 /** The drizzle database handle, with its underlying postgres.js `$client`. */
 export type Db = PostgresJsDatabase & { $client: Sql }

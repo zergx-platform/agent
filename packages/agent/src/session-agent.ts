@@ -5,6 +5,7 @@ import { streamText } from 'ai'
 import { err, ok, type Result } from 'neverthrow'
 import type { Sql } from 'postgres'
 import { z } from 'zod'
+import { fireAndForget } from './async.js'
 import type { Bus } from './bus.js'
 import { mailboxSubject, SESSION_LEASE_MS } from './bus.js'
 import {
@@ -622,7 +623,10 @@ async function persistStep(
   }
   await Sessions.setTip(deps.db, sid, messageId)
   // Keep the per-session context id cache in step with the write.
-  void new AbepAgent(deps.bus).appendSessionId(sid, messageId)
+  fireAndForget(
+    new AbepAgent(deps.bus).appendSessionId(sid, messageId),
+    'appendSessionIds',
+  )
 }
 
 /** Fold a mailbox event into the chain as an `event` message. */
@@ -638,7 +642,10 @@ async function persistEvent(deps: AgentDeps, sid: string, payload: string) {
   if (insert.isOk()) {
     await Parts.insert(deps.db, insert.value, 'text', 0, { text })
     await Sessions.setTip(deps.db, sid, insert.value)
-    void new AbepAgent(deps.bus).appendSessionId(sid, insert.value)
+    fireAndForget(
+      new AbepAgent(deps.bus).appendSessionId(sid, insert.value),
+      'appendSessionIds',
+    )
   }
 }
 
@@ -692,7 +699,10 @@ async function persistUserPrompt(
   if (insert.isOk()) {
     await Parts.insert(deps.db, insert.value, 'text', 0, { text })
     await Sessions.setTip(deps.db, sid, insert.value)
-    void new AbepAgent(deps.bus).appendSessionId(sid, insert.value)
+    fireAndForget(
+      new AbepAgent(deps.bus).appendSessionId(sid, insert.value),
+      'appendSessionIds',
+    )
   }
 }
 
@@ -763,7 +773,10 @@ async function loadHistory(
   if (parts.isErr()) return []
 
   // Backfill the cache with the full bounded id list.
-  void new AbepAgent(deps.bus).putSessionIds(sid, ids)
+  fireAndForget(
+    new AbepAgent(deps.bus).putSessionIds(sid, ids),
+    'putSessionIds',
+  )
 
   return spliceContext(chain.value, parts.value)
 }
@@ -907,9 +920,12 @@ export async function compactSession(
   // Rewrite the cache to the new bounded context id list (with the cm).
   const chainAfter = await Messages.chain(deps.db, cmId, 100_000, null)
   if (chainAfter.isOk()) {
-    void new AbepAgent(deps.bus).putSessionIds(
-      sid,
-      chainAfter.value.map(m => m.id),
+    fireAndForget(
+      new AbepAgent(deps.bus).putSessionIds(
+        sid,
+        chainAfter.value.map(m => m.id),
+      ),
+      'putSessionIds',
     )
   }
 

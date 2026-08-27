@@ -10,8 +10,8 @@ import { z } from 'zod'
 import type { ServerConfig } from './config.js'
 import type { Db } from './db-client.js'
 import { findProviderForModel, Providers } from './db-providers.js'
-import { logger } from './logger.js'
 import { parse } from './json.js'
+import { logger } from './logger.js'
 
 const HeadersSchema = z.record(z.string(), z.string())
 

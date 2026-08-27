@@ -1,6 +1,7 @@
 import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   compactSession,
+  fireAndForget,
   interruptRun,
   Mailbox,
   Messages,
@@ -546,7 +547,10 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
 
     // Keep the cached context id list in sync so the turn's loadHistory does
     // not serve a stale cache missing this just-persisted user message.
-    void new AbepAgent(deps.bus).appendSessionId(id, insert.value)
+    fireAndForget(
+      new AbepAgent(deps.bus).appendSessionId(id, insert.value),
+      'appendSessionIds',
+    )
 
     // Deliver the turn request over the durable mailbox queue. The agent's
     // consumer persists it into PG and runs the turn; the HTTP route never
@@ -558,8 +562,14 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     } catch (e) {
       // Roll the tip back so a failed delivery does not leave a dangling
       // user message with no turn to answer it.
-      void Sessions.setTip(deps.db, id, tipId)
-      void new AbepAgent(deps.bus).deleteSessionIds(id)
+      fireAndForget(
+        Promise.resolve(Sessions.setTip(deps.db, id, tipId)),
+        'setTip-rollback',
+      )
+      fireAndForget(
+        new AbepAgent(deps.bus).deleteSessionIds(id),
+        'deleteSessionIds',
+      )
       return err500(c, `mailbox publish failed: ${String(e)}`)
     }
 
@@ -675,7 +685,10 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
 
     // The context id cache no longer matches the new tip; drop it so the next
     // load re-walks the chain.
-    void new AbepAgent(deps.bus).deleteSessionIds(sid)
+    fireAndForget(
+      new AbepAgent(deps.bus).deleteSessionIds(sid),
+      'deleteSessionIds',
+    )
 
     return c.json({ ok: true, undone: true }, 200)
   })
