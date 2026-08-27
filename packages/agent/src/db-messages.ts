@@ -5,7 +5,13 @@ import { z } from 'zod'
 import type { Db } from './db-client.js'
 import { nowStr, q, uuid } from './db-client.js'
 import { messages, parts } from './db-schema.js'
-import { parse, SummaryPartDataSchema, TextPartDataSchema } from './json.js'
+import {
+  parse,
+  SummaryPartDataSchema,
+  TextPartDataSchema,
+  ToolPartDataSchema,
+  ToolResultPartDataSchema,
+} from './json.js'
 
 const toRow = (r: typeof messages.$inferSelect): MessageRow => ({
   id: r.id,
@@ -20,6 +26,14 @@ export interface ChainMessage extends MessageRow {
   /** Pure-text view: text parts for normal messages, the summary for a
    *  compaction message (used by the read API/UI). */
   content: string
+  /** Structured parts for tool calls (name/input/result) so the read API/UI
+   *  can render tool steps; empty for plain text messages. */
+  tool_parts: Array<{
+    type: 'tool'
+    name: string
+    input: unknown
+    result: string
+  }>
 }
 
 export type MessageRole = 'user' | 'assistant' | 'event' | 'compaction'
@@ -102,9 +116,11 @@ export const Messages = {
         return r === undefined ? [] : [toRow(r)]
       })
       const contentByMsg = await textContentByMessages(db, ids)
+      const toolPartsByMsg = await toolPartsByMessages(db, ids)
       return ordered.map(m => ({
         ...m,
         content: contentByMsg.get(m.id) ?? '',
+        tool_parts: toolPartsByMsg.get(m.id) ?? [],
       }))
     }, 'messages by ids')
   },
@@ -203,9 +219,11 @@ function hydrateChain(
     const chainMsgs = raw.map(toChain)
     const ids = chainMsgs.map(m => m.id)
     const contentByMsg = await textContentByMessages(db, ids)
+    const toolPartsByMsg = await toolPartsByMessages(db, ids)
     return chainMsgs.map(m => ({
       ...m,
       content: contentByMsg.get(m.id) ?? '',
+      tool_parts: toolPartsByMsg.get(m.id) ?? [],
     }))
   }, 'hydrate message chain')
 }
@@ -214,6 +232,7 @@ const toChain = (r: z.infer<typeof ChainRowSchema>): ChainMessage => ({
   id: r.id,
   role: r.role,
   content: '',
+  tool_parts: [],
   prev_id: r.prev_id,
   tool_name: r.tool_name,
   tool_call_id: r.tool_call_id,
@@ -242,6 +261,49 @@ async function textContentByMessages(
       const d = parse(SummaryPartDataSchema, p.data)
       if (d.isOk()) out.set(p.messageId, d.value.summary)
     }
+  }
+  return out
+}
+
+/** Message id → structured tool-call parts (name/input + paired result). */
+async function toolPartsByMessages(
+  db: Db,
+  ids: string[],
+): Promise<Map<string, ChainMessage['tool_parts']>> {
+  const out = new Map<string, ChainMessage['tool_parts']>()
+  if (ids.length === 0) return out
+  const rows = await db
+    .select()
+    .from(parts)
+    .where(inArray(parts.messageId, ids))
+    .orderBy(parts.messageId, parts.seq)
+  const byMsg = new Map<string, (typeof rows)[number][]>()
+  for (const p of rows) {
+    const list = byMsg.get(p.messageId) ?? []
+    list.push(p)
+    byMsg.set(p.messageId, list)
+  }
+  for (const [messageId, ps] of byMsg) {
+    const results = new Map<string, string>()
+    const tools: ChainMessage['tool_parts'] = []
+    for (const p of ps) {
+      if (p.type === 'tool_result') {
+        const d = parse(ToolResultPartDataSchema, p.data)
+        if (d.isOk()) results.set(d.value.tool_use_id, d.value.content)
+      }
+    }
+    for (const p of ps) {
+      if (p.type !== 'tool') continue
+      const d = parse(ToolPartDataSchema, p.data)
+      if (!d.isOk()) continue
+      tools.push({
+        type: 'tool',
+        name: d.value.name,
+        input: d.value.input,
+        result: results.get(d.value.id) ?? '',
+      })
+    }
+    if (tools.length > 0) out.set(messageId, tools)
   }
   return out
 }
