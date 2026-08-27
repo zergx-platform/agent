@@ -518,8 +518,11 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     const { db } = c.get('deps')
     const { id } = c.req.valid('param')
     const q = c.req.valid('query')
-    const limit = Number.parseInt(q.limit ?? '50', 10)
-    const before = q.before ?? null
+    // Treat empty-string params as absent: `?limit=` (e.g. from a proxy that
+    // always emits the key) must not coerce to NaN and silently return zero
+    // messages.
+    const limit = Number.parseInt(q.limit?.trim() || '50', 10) || 50
+    const before = q.before?.trim() || null
     const tipRes = await Sessions.tip(db, id)
     const tipId = tipRes.isErr() ? null : tipRes.value
     const r = await Messages.chain(db, tipId, limit, before)
