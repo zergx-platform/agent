@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Base images default to the in-cluster artifact registry (buildkitd trusts it
 # as an insecure registry); override with --build-arg when building elsewhere.
-ARG REGISTRY=rucoder-artifact.temp.10.199.64.20.nip.io
+ARG REGISTRY=artifact.zergx.svc.cluster.local
 FROM ${REGISTRY}/library/node:26-alpine AS build
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
