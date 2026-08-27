@@ -71,12 +71,32 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
     })
 
     const dedup = new EidDedup()
+    // Replay only the trailing in-flight turn, not the whole history. All
+    // already-persisted messages are served by GET /messages (walked from the
+    // current tip), so replaying their old text/tool events here would re-
+    // materialize messages the user has since undone — the UI would show
+    // withdrawn history. We split the retained events on the last turn
+    // boundary (status busy / turn-complete) and emit only the events after
+    // the most recent boundary, which is exactly the still-streaming turn (or
+    // nothing when idle).
     const replay = await agent.replayEvents(sid)
-    for (const raw of replay) {
-      const v = EidEventSchema.safeParse(raw)
-      if (!v.success) continue
-      dedup.mark(v.data.eid)
-      await stream.writeSSE({ data: JSON.stringify(raw) })
+    let tailStart = -1
+    for (let i = replay.length - 1; i >= 0; i--) {
+      const e = replay[i]?.event
+      const p = (replay[i]?.params ?? {}) as { type?: string }
+      if (e === 'turn-complete' || (e === 'status' && p.type === 'busy')) {
+        tailStart = i
+        break
+      }
+    }
+    if (tailStart >= 0) {
+      for (let i = tailStart; i < replay.length; i++) {
+        const raw = replay[i]
+        const v = EidEventSchema.safeParse(raw)
+        if (!v.success) continue
+        dedup.mark(v.data.eid)
+        await stream.writeSSE({ data: JSON.stringify(raw) })
+      }
     }
     for await (const m of sub) {
       if (closed) break
