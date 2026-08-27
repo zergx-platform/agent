@@ -216,7 +216,7 @@ export interface ApiErrorBody {
 //
 // The single source of truth for the typed API surface is the server router:
 // the UI derives its Hono client with `hc<AppType>()` from
-// @rucoder-agent/server (`AppType = typeof app`). No hand-written contract.
+// @zergx-agent/server (`AppType = typeof app`). No hand-written contract.
 
 export type SessionJson = SessionRow & { base_image: null; unread: number }
 

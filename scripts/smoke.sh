@@ -3,12 +3,12 @@
 # the full mailbox pipeline (prompt → NATS → consumer → PG → turn → reply).
 #
 # Usage:
-#   AGENT_BASE=http://rucoder-agent.temp.svc.cluster.local bash smoke.sh
+#   AGENT_BASE=http://agent.zergx.svc.cluster.local bash smoke.sh
 #
 # The agent must be reachable at AGENT_BASE (in-cluster svc or a port-forward).
 set -uo pipefail
 
-AGENT_BASE="${AGENT_BASE:-http://rucoder-agent.temp.svc.cluster.local}"
+AGENT_BASE="${AGENT_BASE:-http://agent.zergx.svc.cluster.local}"
 SID="smoke-$(date +%s)$RANDOM"
 PASS=0
 FAIL=0

@@ -1,5 +1,5 @@
 {
-  "name": "@rucoder-agent/server",
+  "name": "@zergx-agent/server",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,8 +15,8 @@
     "@hono/node-server": "^2.1.1",
     "@hono/zod-openapi": "^1.6.1",
     "@hono/zod-validator": "^0.9.0",
-    "@rucoder-agent/agent": "*",
-    "@rucoder-agent/schema": "*",
+    "@zergx-agent/agent": "*",
+    "@zergx-agent/schema": "*",
     "abep-sdk": "0.2.5",
     "abep-sdk-nats": "0.2.5",
     "hono": "^4.13.3",

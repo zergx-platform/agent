@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { PartRow } from '@rucoder-agent/schema'
+import type { PartRow } from '@zergx-agent/schema'
 import { Agent as AbepAgent } from 'abep-sdk'
 import type { ModelMessage, Tool } from 'ai'
 import { streamText } from 'ai'

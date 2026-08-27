@@ -1,17 +1,17 @@
-import type { CreateSessionBody, SessionJson } from '@rucoder-agent/schema'
+import type { CreateSessionBody, SessionJson } from '@zergx-agent/schema'
 import {
   CatalogProvidersSchema,
   ProviderJsonSchema,
   SessionRowSchema,
-} from '@rucoder-agent/schema'
-import type { AppType } from '@rucoder-agent/server'
+} from '@zergx-agent/schema'
+import type { AppType } from '@zergx-agent/server'
 import { hc } from 'hono/client'
 import { err, ok, type Result, ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 
 /**
  * Type-safe Hono RPC client. The client type is derived from the real server
- * router (`AppType = typeof app` in @rucoder-agent/server) so paths, `:id`
+ * router (`AppType = typeof app` in @zergx-agent/server) so paths, `:id`
  * params, request bodies and response shapes are all inferred. Every response
  * body is additionally validated at runtime against the shared zod schemas.
  *

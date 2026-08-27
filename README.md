@@ -1,8 +1,8 @@
-# rucoder-agent-ts
+# zergx-agent-ts
 
-TypeScript implementation of the rucoder coding-agent session service,
-mirroring the architecture and tooling of `recoder-neo` (Hono + drizzle +
-neverthrow + Vercel AI SDK) while interoperating with the Rust `rucoder-agent`
+TypeScript implementation of the zergx coding-agent session service,
+mirroring the architecture and tooling of `zergx` (Hono + drizzle +
+neverthrow + Vercel AI SDK) while interoperating with the Rust `zergx-agent`
 on the same Postgres and NATS/JetStream cluster (both replicas can serve the
 same sessions; cross-replica mutual exclusion via Postgres advisory locks,
 event fan-out via JetStream subjects).
@@ -44,7 +44,7 @@ Same env vars as the Rust agent (`RUCODER_PORT`, `POSTGRES_*`, `NATS_URL`,
 
 Tools are discovered from tool servers (`GET /api/v1/tools`) and invoked over
 NATS (`tool.call.{name}` → `tool.result.{call_id}`, large results via the
-`RCODER_TOOL` object store) — byte-compatible with `rucoder-sdk-bus`, so tool
+`ZERGX_TOOL` object store) — byte-compatible with `zergx-sdk-bus`, so tool
 servers need no changes.
 
 ## Behavior notes vs the Rust agent

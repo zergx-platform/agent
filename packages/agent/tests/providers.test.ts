@@ -1,4 +1,4 @@
-import type { ProviderRow } from '@rucoder-agent/schema'
+import type { ProviderRow } from '@zergx-agent/schema'
 import { describe, expect, it } from 'vitest'
 import { findProviderForModel } from '../src/db-providers.js'
 

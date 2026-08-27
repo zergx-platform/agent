@@ -30,41 +30,41 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     return v !== undefined && v !== '' ? v : d
   }
 
-  const pgUrl = `postgres://${or('POSTGRES_USER', 'root')}:${or('POSTGRES_PASSWORD', 'devpassword')}@${or('POSTGRES_HOST', 'postgres.develop.svc.cluster.local')}:${or('POSTGRES_PORT', '5432')}/${or('POSTGRES_DB_AGENT', 'rucoder_agent')}`
+  const pgUrl = `postgres://${or('POSTGRES_USER', 'root')}:${or('POSTGRES_PASSWORD', 'devpassword')}@${or('POSTGRES_HOST', 'postgres.develop.svc.cluster.local')}:${or('POSTGRES_PORT', '5432')}/${or('POSTGRES_DB_AGENT', 'zergx_agent')}`
 
   return {
-    port: Number.parseInt(or('RUCODER_PORT', '8080'), 10),
+    port: Number.parseInt(or('ZERGX_PORT', '8080'), 10),
     postgresUrl: pgUrl,
     natsUrl: or('NATS_URL', 'nats://nats.develop.svc.cluster.local:4222'),
     extensionDiscoverMs: Number.parseInt(
-      or('RUCODER_EXTENSION_DISCOVER_MS', '500'),
+      or('ZERGX_EXTENSION_DISCOVER_MS', '500'),
       10,
     ),
     toolTimeoutMs:
-      Number.parseInt(or('RUCODER_TOOL_TIMEOUT_SECS', '600'), 10) * 1000,
-    llmApiType: or('RUCODER_LLM_API_TYPE', 'openai-compatible'),
+      Number.parseInt(or('ZERGX_TOOL_TIMEOUT_SECS', '600'), 10) * 1000,
+    llmApiType: or('ZERGX_LLM_API_TYPE', 'openai-compatible'),
     llmBaseUrl: or(
-      'RUCODER_LLM_BASE_URL',
+      'ZERGX_LLM_BASE_URL',
       'http://tal-openai-proxy.develop.svc.cluster.local:4000/v1',
     ),
-    llmApiKey: or('RUCODER_LLM_API_KEY', ''),
-    llmModel: or('RUCODER_LLM_MODEL', 'deepseek-v4-pro'),
-    defaultMaxTurns: Number.parseInt(or('RUCODER_DEFAULT_MAX_TURNS', '25'), 10),
-    defaultTemperature: Number.parseFloat(or('RUCODER_LLM_TEMPERATURE', '0')),
+    llmApiKey: or('ZERGX_LLM_API_KEY', ''),
+    llmModel: or('ZERGX_LLM_MODEL', 'deepseek-v4-pro'),
+    defaultMaxTurns: Number.parseInt(or('ZERGX_DEFAULT_MAX_TURNS', '25'), 10),
+    defaultTemperature: Number.parseFloat(or('ZERGX_LLM_TEMPERATURE', '0')),
     defaultMaxTokens: Number.parseInt(
-      or('RUCODER_LLM_MAX_TOKENS', '32768'),
+      or('ZERGX_LLM_MAX_TOKENS', '32768'),
       10,
     ),
     memoryUrl: or(
-      'RUCODER_MEMORY_URL',
-      'http://rucoder-memory-tools.develop.svc.cluster.local:80',
+      'ZERGX_MEMORY_URL',
+      'http://memory-tools.zergx.svc.cluster.local:80',
     ),
     repoManagerUrl: or(
-      'RUCODER_REPO_MANAGER_URL',
-      'http://rucoder-repo-manager.develop.svc.cluster.local:80',
+      'ZERGX_REPO_MANAGER_URL',
+      'http://repo-manager.zergx.svc.cluster.local:80',
     ),
     compactionContextTokens: Number.parseInt(
-      or('RUCODER_COMPACTION_CONTEXT_TOKENS', '200000'),
+      or('ZERGX_COMPACTION_CONTEXT_TOKENS', '200000'),
       10,
     ),
   }

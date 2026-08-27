@@ -8,7 +8,7 @@ export type Logger = pino.Logger
  * bindings without breaking the JSON shape.
  */
 export const logger: Logger = pino({
-  name: 'rucoder-agent',
+  name: 'zergx-agent',
   level: process.env.LOG_LEVEL ?? 'info',
 })
 

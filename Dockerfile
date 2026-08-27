@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/root/.npm \
 FROM ${REGISTRY}/library/alpine:3.24
 RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories \
     && apk add --no-cache ca-certificates libstdc++
-COPY --from=build /build/.sea/rucoder-agent /usr/local/bin/rucoder-agent
-ENV RUCODER_PORT=8080
+COPY --from=build /build/.sea/zergx-agent /usr/local/bin/zergx-agent
+ENV ZERGX_PORT=8080
 EXPOSE 8080
-ENTRYPOINT ["rucoder-agent"]
+ENTRYPOINT ["zergx-agent"]

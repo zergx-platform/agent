@@ -37,12 +37,12 @@ export const sseSubject = (sid: string) =>
   `abep.session.events.${natsToken(sid)}`
 
 // stream names (kept for replayAll callers)
-export const STREAM_SSE = 'RCODER_SSE'
-export const STREAM_MAILBOX = 'RCODER_MAILBOX'
-export const STREAM_NOTIFY = 'RCODER_NOTIFY'
-export const BUCKET_SESSION_STATE = 'RCODER_SESSION_STATE'
-export const BUCKET_SESSION_IDS = 'RCODER_SESSION_IDS'
-export const BUCKET_TOOL = 'RCODER_TOOL'
+export const STREAM_SSE = 'ZERGX_SSE'
+export const STREAM_MAILBOX = 'ZERGX_MAILBOX'
+export const STREAM_NOTIFY = 'ZERGX_NOTIFY'
+export const BUCKET_SESSION_STATE = 'ZERGX_SESSION_STATE'
+export const BUCKET_SESSION_IDS = 'ZERGX_SESSION_IDS'
+export const BUCKET_TOOL = 'ZERGX_TOOL'
 export const SESSION_LEASE_MS = 30_000
 export const MODELS_DEV_KEY = 'models-dev-catalog.json'
 

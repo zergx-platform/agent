@@ -1,6 +1,6 @@
 # Extension Server Protocol
 
-The rucoder-agent is extended via **extension servers**: independent processes
+The zergx-agent is extended via **extension servers**: independent processes
 that contribute tools and system-prompt template variables to the agent.
 
 Transport is **NATS only**. There is no HTTP discovery and no static server
@@ -17,7 +17,7 @@ their message types from that JSON Schema.
 
 | Purpose      | Subject                                  | Direction            |
 | ------------ | ---------------------------------------- | -------------------- |
-| Discovery    | `rucoder.extension.discover`             | agent → extensions   |
+| Discovery    | `zergx.extension.discover`             | agent → extensions   |
 | Variable     | `extension.{id}.prompt.variable.{name}`  | agent → one extension |
 
 Tool execution reuses the tool contract with **namespaced subjects** (see
@@ -37,10 +37,10 @@ automatically.
 ## Discovery
 
 When the agent needs tool manifests or wants to resolve template variables, it
-broadcasts an empty request to `rucoder.extension.discover` using NATS
+broadcasts an empty request to `zergx.extension.discover` using NATS
 request/reply fan-out (`requestMany`, timer strategy).
 
-Every extension subscribes to `rucoder.extension.discover` and replies with a
+Every extension subscribes to `zergx.extension.discover` and replies with a
 single message whose JSON shape is `ExtensionManifestSchema`:
 
 ```jsonc
@@ -124,9 +124,9 @@ resolved in preview and remain as literal placeholders.
 ## Reference implementation notes
 
 - **TypeScript** (in-repo): import the zod schemas directly from
-  `@rucoder-agent/schema`. See `packages/agent/src/extensions.ts` for the agent
+  `@zergx-agent/schema`. See `packages/agent/src/extensions.ts` for the agent
   side; an extension is just a NATS client that (a) subscribes to
-  `rucoder.extension.discover` and replies with the manifest, and (b) optionally
+  `zergx.extension.discover` and replies with the manifest, and (b) optionally
   subscribes to `extension.{id}.prompt.variable.*`.
 - **Go / Rust / Python**: generate types from
   `packages/schema/dist/extension-schema.json` (e.g. `quicktype`,

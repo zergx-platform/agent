@@ -1,20 +1,20 @@
 {
-  "name": "rucoder-agent-ts",
+  "name": "zergx-agent",
   "private": true,
   "type": "module",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@rucoder-agent/schema && npm run build --workspace=@rucoder-agent/agent && npm run build --workspace=@rucoder-agent/server && npm run build --workspace=@rucoder-agent/ui && node scripts/build-sea.mjs",
+    "build": "npm run build --workspace=@zergx-agent/schema && npm run build --workspace=@zergx-agent/agent && npm run build --workspace=@zergx-agent/server && npm run build --workspace=@zergx-agent/ui && node scripts/build-sea.mjs",
     "check": "biome check .",
     "check:fix": "biome check --fix .",
     "dev": "tsx watch packages/server/src/index.ts",
     "dev:server": "tsx watch packages/server/src/index.ts",
-    "dev:web": "npm run dev --workspace=@rucoder-agent/ui",
+    "dev:web": "npm run dev --workspace=@zergx-agent/ui",
     "format": "biome format --write .",
     "lint": "biome lint .",
-    "start": "node .sea/rucoder-agent",
+    "start": "node .sea/zergx-agent",
     "test": "npm test --workspaces --if-present"
   },
   "devDependencies": {

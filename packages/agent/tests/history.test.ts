@@ -1,4 +1,4 @@
-import type { MessageRow, PartRow } from '@rucoder-agent/schema'
+import type { MessageRow, PartRow } from '@zergx-agent/schema'
 import { describe, expect, it } from 'vitest'
 import { rebuildHistory } from '../src/history.js'
 

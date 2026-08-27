@@ -1,4 +1,4 @@
-import type { PartRow } from '@rucoder-agent/schema'
+import type { PartRow } from '@zergx-agent/schema'
 import { describe, expect, it } from 'vitest'
 import { checkpointContent } from '../src/compaction.js'
 import type { ChainMessage } from '../src/db-messages.js'

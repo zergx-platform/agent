@@ -1,4 +1,4 @@
-import type { MessageRow } from '@rucoder-agent/schema'
+import type { MessageRow } from '@zergx-agent/schema'
 import { eq, inArray } from 'drizzle-orm'
 import { err, ok, ResultAsync } from 'neverthrow'
 import { z } from 'zod'

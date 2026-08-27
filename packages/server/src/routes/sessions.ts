@@ -10,7 +10,7 @@ import {
   publishLifecycle,
   Sessions,
   sseSubject,
-} from '@rucoder-agent/agent'
+} from '@zergx-agent/agent'
 import {
   CreateSessionBodySchema,
   ForkBodySchema,
@@ -20,14 +20,14 @@ import {
   type SessionRow,
   SessionSettingsBodySchema,
   UndoBodySchema,
-} from '@rucoder-agent/schema'
+} from '@zergx-agent/schema'
 import { Agent as AbepAgent } from 'abep-sdk'
 import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import { type AppEnv, EidDedup } from '../context.js'
 
-/** Serialize a session row into the recoder UI contract. */
+/** Serialize a session row into the zergx UI contract. */
 function sessionToJson(s: SessionRow): Record<string, unknown> {
   return { ...s, base_image: null, unread: 0 }
 }

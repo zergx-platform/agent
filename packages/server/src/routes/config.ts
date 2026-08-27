@@ -6,8 +6,8 @@ import {
   Providers,
   parse,
   renderTemplate,
-} from '@rucoder-agent/agent'
-import { ConfigBodySchema, PresetBodySchema } from '@rucoder-agent/schema'
+} from '@zergx-agent/agent'
+import { ConfigBodySchema, PresetBodySchema } from '@zergx-agent/schema'
 import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
@@ -270,11 +270,11 @@ const listModelsRoute = createRoute({
   },
 })
 
-// ---- rucoder config ----
+// ---- zergx config ----
 
-const rucoderConfigRoute = createRoute({
+const zergxConfigRoute = createRoute({
   method: 'get',
-  path: '/rucoder-config',
+  path: '/zergx-config',
   summary: 'Rucoder config',
   responses: {
     200: {
@@ -410,7 +410,7 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
       models.unshift(llm.defaultModelId())
     return c.json({ models: models.map(id => ({ id, name: id })) }, 200)
   })
-  .openapi(rucoderConfigRoute, async c => {
+  .openapi(zergxConfigRoute, async c => {
     const deps = c.get('deps')
     const r = await Providers.list(deps.db)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
@@ -428,9 +428,9 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     return c.json(
       {
         providers,
-        cdp_url: process.env.RUCODER_CDP_URL ?? '',
-        http_proxy: process.env.RUCODER_HTTP_PROXY ?? '',
-        self_base: process.env.RUCODER_SELF_BASE ?? '',
+        cdp_url: process.env.ZERGX_CDP_URL ?? '',
+        http_proxy: process.env.ZERGX_HTTP_PROXY ?? '',
+        self_base: process.env.ZERGX_SELF_BASE ?? '',
       },
       200,
     )

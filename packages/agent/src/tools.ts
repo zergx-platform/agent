@@ -1,7 +1,7 @@
 import {
   ExtensionManifestSchema,
   type ExtensionTool,
-} from '@rucoder-agent/schema'
+} from '@zergx-agent/schema'
 import { Agent as AbepAgent } from 'abep-sdk'
 import { jsonSchema, type Tool } from 'ai'
 import { z } from 'zod'
@@ -82,7 +82,7 @@ const discoveryCache: DiscoveryCache = {
  * broadcast wait (~500ms) before the model even starts. Concurrent turns
  * share one in-flight broadcast (no thundering herd). Extensions restarted
  * with a changed toolset surface within one TTL; tune via
- * RUCODER_DISCOVERY_TTL_MS, disable with 0.
+ * ZERGX_DISCOVERY_TTL_MS, disable with 0.
  */
 export async function discoverToolsCached(
   bus: Bus,
@@ -109,7 +109,7 @@ export function invalidateDiscoveryCache(): void {
 }
 
 function discoveryTtlMs(): number {
-  const v = process.env.RUCODER_DISCOVERY_TTL_MS
+  const v = process.env.ZERGX_DISCOVERY_TTL_MS
   if (v === undefined) return 30_000
   const n = Number.parseInt(v, 10)
   return Number.isNaN(n) ? 30_000 : n

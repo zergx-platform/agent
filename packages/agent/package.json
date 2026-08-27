@@ -1,5 +1,5 @@
 {
-  "name": "@rucoder-agent/agent",
+  "name": "@zergx-agent/agent",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,7 @@
     "@ai-sdk/openai": "^4.0.45",
     "@ai-sdk/openai-compatible": "^3.0.34",
     "@opencode-ai/models": "^0.0.50",
-    "@rucoder-agent/schema": "*",
+    "@zergx-agent/schema": "*",
     "abep-sdk": "0.2.5",
     "abep-sdk-nats": "0.2.5",
     "ai": "^7.0.73",

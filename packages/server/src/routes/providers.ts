@@ -1,9 +1,9 @@
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
-import { Providers, parse, validateApiType } from '@rucoder-agent/agent'
+import { Providers, parse, validateApiType } from '@zergx-agent/agent'
 import {
   ProviderBodySchema,
   ProviderTestBodySchema,
-} from '@rucoder-agent/schema'
+} from '@zergx-agent/schema'
 import { Agent as AbepAgent } from 'abep-sdk'
 import { err, ok, ResultAsync } from 'neverthrow'
 import { z } from 'zod'

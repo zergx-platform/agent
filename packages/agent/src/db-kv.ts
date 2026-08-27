@@ -1,4 +1,4 @@
-import type { PresetRow } from '@rucoder-agent/schema'
+import type { PresetRow } from '@zergx-agent/schema'
 import { eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
 import type { Db } from './db-client.js'

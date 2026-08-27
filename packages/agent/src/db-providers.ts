@@ -1,4 +1,4 @@
-import type { ProviderRow } from '@rucoder-agent/schema'
+import type { ProviderRow } from '@zergx-agent/schema'
 import { eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
 import { z } from 'zod'

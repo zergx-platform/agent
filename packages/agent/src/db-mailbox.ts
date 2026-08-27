@@ -1,4 +1,4 @@
-import type { MailboxRow } from '@rucoder-agent/schema'
+import type { MailboxRow } from '@zergx-agent/schema'
 import { sql as dsql, eq } from 'drizzle-orm'
 import type { ResultAsync } from 'neverthrow'
 import { z } from 'zod'

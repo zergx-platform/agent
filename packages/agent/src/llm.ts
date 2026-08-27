@@ -3,7 +3,7 @@ import { createDeepSeek } from '@ai-sdk/deepseek'
 import { createGoogle } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import type { ProviderRow } from '@rucoder-agent/schema'
+import type { ProviderRow } from '@zergx-agent/schema'
 import type { LanguageModel } from 'ai'
 import { err, ok, type Result } from 'neverthrow'
 import { z } from 'zod'
@@ -41,7 +41,7 @@ export function validateApiType(apiType: string): Result<void, string> {
       )
 }
 
-/** Pure model factory — mirrors recoder's provider.ts. */
+/** Pure model factory — mirrors zergx provider.ts. */
 export function buildModelForApiType(
   credentials: ProviderCredentials,
   modelId: string,

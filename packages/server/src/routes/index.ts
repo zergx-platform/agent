@@ -23,7 +23,7 @@ const healthRoute = createRoute({
 
 export function buildRoutes() {
   const api = new OpenAPIHono<AppEnv>().openapi(healthRoute, async c => {
-    return c.json({ ok: true, name: 'rucoder-agent-ts' }, 200)
+    return c.json({ ok: true, name: 'zergx-agent' }, 200)
   })
 
   const routed = api

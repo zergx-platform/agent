@@ -2,7 +2,7 @@ import {
   ExtensionManifestSchema,
   type ExtensionVariable,
   ExtensionVariableSchema,
-} from '@rucoder-agent/schema'
+} from '@zergx-agent/schema'
 import { Agent as AbepAgent } from 'abep-sdk'
 import { ResultAsync } from 'neverthrow'
 import type { Bus } from './bus.js'
