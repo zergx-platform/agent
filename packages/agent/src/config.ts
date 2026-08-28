@@ -30,12 +30,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     return v !== undefined && v !== '' ? v : d
   }
 
-  const pgUrl = `postgres://${or('POSTGRES_USER', 'root')}:${or('POSTGRES_PASSWORD', 'devpassword')}@${or('POSTGRES_HOST', 'postgres.develop.svc.cluster.local')}:${or('POSTGRES_PORT', '5432')}/${or('POSTGRES_DB_AGENT', 'zergx_agent')}`
+  const pgUrl = `postgres://${or('POSTGRES_USER', 'root')}:${or('POSTGRES_PASSWORD', 'devpassword')}@${or('POSTGRES_HOST', 'postgres.zergx.svc.cluster.local')}:${or('POSTGRES_PORT', '5432')}/${or('POSTGRES_DB_AGENT', 'zergx_agent')}`
 
   return {
     port: Number.parseInt(or('ZERGX_PORT', '8080'), 10),
     postgresUrl: pgUrl,
-    natsUrl: or('NATS_URL', 'nats://nats.develop.svc.cluster.local:4222'),
+    natsUrl: or('NATS_URL', 'nats://nats.zergx.svc.cluster.local:4222'),
     extensionDiscoverMs: Number.parseInt(
       or('ZERGX_EXTENSION_DISCOVER_MS', '500'),
       10,
@@ -61,7 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     ),
     repoManagerUrl: or(
       'ZERGX_REPO_MANAGER_URL',
-      'http://repo-manager.zergx.svc.cluster.local:80',
+      'http://jjlab.zergx.svc.cluster.local:80',
     ),
     compactionContextTokens: Number.parseInt(
       or('ZERGX_COMPACTION_CONTEXT_TOKENS', '200000'),
