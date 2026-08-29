@@ -9,6 +9,7 @@
 set -uo pipefail
 
 AGENT_BASE="${AGENT_BASE:-http://agent.zergx.svc.cluster.local}"
+MEMORY_BASE="${MEMORY_BASE:-http://memory-tools.zergx.svc.cluster.local}"
 SID="smoke-$(date +%s)$RANDOM"
 PASS=0
 FAIL=0
@@ -91,7 +92,7 @@ for _ in $(seq 1 45); do
 done
 check "tool turn reaches idle" "$state" "idle"
 
-todos=$(curl -sf "http://memory-tools.zergx.svc.cluster.local/api/v1/todos?session_id=$SID")
+todos=$(curl -sf "$MEMORY_BASE/api/v1/todos?session_id=$SID")
 echo "$todos" | grep -q 'SMOKE-TODO' \
   && pass "todo persisted via tool call" || fail "todo not persisted ($todos)"
 
