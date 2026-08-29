@@ -109,5 +109,4 @@ describe('buildAiTools session_name envelope', () => {
     const out = await tools.read.execute({}, execOpts('c4'))
     expect(out).toEqual({ content: 'payload text', metadata: { rows: 3 } })
   })
-
 })

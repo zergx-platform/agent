@@ -232,10 +232,21 @@ async function importProviders(sql: Sql): Promise<void> {
   }
 }
 
-/** Wrap a throwing async query into a ResultAsync with context. */
+/** Wrap a throwing async query into a ResultAsync with context.
+ * The error chain (Drizzle wraps the pg cause) is flattened into the
+ * message so downstream classifiers (e.g. foreign-key detection) can see
+ * the underlying pg error code/detail. */
 export function q<T>(
   op: () => Promise<T>,
   context: string,
 ): ResultAsync<T, string> {
-  return ResultAsync.fromPromise(op(), e => `${context}: ${String(e)}`)
+  return ResultAsync.fromPromise(op(), e => {
+    const causes: string[] = []
+    let cur: unknown = e
+    for (let depth = 0; depth < 4 && cur instanceof Error; depth++) {
+      causes.push(cur.message ?? String(cur))
+      cur = (cur as Error & { cause?: unknown }).cause
+    }
+    return `${context}: ${causes.join(' | caused by: ')}`
+  })
 }
