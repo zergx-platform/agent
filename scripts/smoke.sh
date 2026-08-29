@@ -105,6 +105,8 @@ grep -q 'todos-updated' "$SSE_LOG" \
 kill "$SSE_PID" 2>/dev/null
 rm -f "$SSE_LOG"
 
+# cleanup: remove the session so reruns don't accumulate
+curl -s -X DELETE "$AGENT_BASE/api/v1/sessions/$SID" -o /dev/null
 echo "======================================"
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
