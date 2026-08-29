@@ -14,7 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@abc-protocol/sdk": "0.1.1",
+    "@abc-protocol/sdk": "0.2.0",
     "@ai-sdk/anthropic": "^4.0.40",
     "@ai-sdk/deepseek": "^3.0.29",
     "@ai-sdk/google": "^4.0.49",
