@@ -71,6 +71,40 @@ echo "$body" | grep -q '"undone":false' \
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$AGENT_BASE/api/v1/sessions/$SID/read")
 check "mark read returns 200" "$code" "200"
 
+# 9. tool-call turn: the model must drive the memory extension's todowrite
+#    over the abc wire (TS agent -> NATS -> Go extension), the todo must land
+#    in PG, and the todos-updated SSE event must reach the session stream.
+SSE_LOG="$(mktemp)"
+curl -sN --max-time 90 "$AGENT_BASE/api/v1/sessions/$SID/events" >"$SSE_LOG" 2>/dev/null &
+SSE_PID=$!
+body=$(curl -sf -X POST -H 'Content-Type: application/json' \
+  -d '{"prompt":"Call the todowrite tool to replace my todo list with exactly one todo: content SMOKE-TODO, status pending, priority high. Then reply with exactly: TOOL-DONE"}' \
+  "$AGENT_BASE/api/v1/sessions/$SID/prompt")
+echo "$body" | grep -q '"ok":true' \
+  && pass "tool prompt submitted" || fail "tool prompt submit ($body)"
+
+state="busy"
+for _ in $(seq 1 45); do
+  state=$(curl -sf "$AGENT_BASE/api/v1/sessions/$SID/state" | sed -E 's/.*"status":"([a-z]+)".*/\1/')
+  [ "$state" = "idle" ] && break
+  sleep 2
+done
+check "tool turn reaches idle" "$state" "idle"
+
+todos=$(curl -sf "http://memory-tools.zergx.svc.cluster.local/api/v1/todos?session_id=$SID")
+echo "$todos" | grep -q 'SMOKE-TODO' \
+  && pass "todo persisted via tool call" || fail "todo not persisted ($todos)"
+
+# SSE events arrive asynchronously; give the stream a short grace period.
+for _ in $(seq 1 10); do
+  grep -q 'todos-updated' "$SSE_LOG" && break
+  sleep 1
+done
+grep -q 'todos-updated' "$SSE_LOG" \
+  && pass "todos-updated SSE event received" || fail "no todos-updated SSE event ($(head -c 200 "$SSE_LOG"))"
+kill "$SSE_PID" 2>/dev/null
+rm -f "$SSE_LOG"
+
 echo "======================================"
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
