@@ -51,10 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     llmModel: or('ZERGX_LLM_MODEL', 'deepseek-v4-pro'),
     defaultMaxTurns: Number.parseInt(or('ZERGX_DEFAULT_MAX_TURNS', '25'), 10),
     defaultTemperature: Number.parseFloat(or('ZERGX_LLM_TEMPERATURE', '0')),
-    defaultMaxTokens: Number.parseInt(
-      or('ZERGX_LLM_MAX_TOKENS', '32768'),
-      10,
-    ),
+    defaultMaxTokens: Number.parseInt(or('ZERGX_LLM_MAX_TOKENS', '32768'), 10),
     memoryUrl: or(
       'ZERGX_MEMORY_URL',
       'http://memory-tools.zergx.svc.cluster.local:80',

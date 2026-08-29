@@ -20,5 +20,13 @@ export * from './llm.js'
 export * from './logger.js'
 export * from './models-dev.js'
 export * from './session-agent.js'
+export {
+  appendSessionId,
+  deleteSessionIds,
+  getModelsDev,
+  getSessionIds,
+  putModelsDev,
+  putSessionIds,
+} from './store.js'
 export * from './token.js'
 export * from './tools.js'

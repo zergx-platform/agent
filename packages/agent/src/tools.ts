@@ -1,8 +1,8 @@
+import { Agent as AbepAgent } from '@abc-protocol/sdk'
 import {
   ExtensionManifestSchema,
   type ExtensionTool,
 } from '@zergx-agent/schema'
-import { Agent as AbepAgent } from 'abep-sdk'
 import { jsonSchema, type Tool } from 'ai'
 import { z } from 'zod'
 import type { Bus } from './bus.js'
@@ -149,13 +149,12 @@ export function buildAiTools(
       inputSchema: jsonSchema(t.inputSchema),
       execute: async (args, { toolCallId }) => {
         return await raceFinal(
-          new AbepAgent(bus).callTool(
-            sessionId ?? '',
-            t.extId,
-            t.name,
-            toolCallId,
-            args ?? {},
-          ),
+          new AbepAgent(bus)
+            .callTool(sessionId ?? '', t.extId, t.name, toolCallId, args ?? {})
+            .then(r => ({
+              content: r.content ?? '',
+              metadata: r.data ?? null,
+            })),
           timeoutMs,
           t.name,
           abortSignal,
@@ -173,7 +172,7 @@ export function buildAiTools(
  * the turn and never feeds a raw error to the model.
  */
 async function raceFinal(
-  p: Promise<{ content: string; metadata?: unknown }>,
+  p: Promise<ToolResult>,
   timeoutMs: number,
   name: string,
   abortSignal?: AbortSignal,
@@ -198,11 +197,7 @@ async function raceFinal(
     abortSignal.addEventListener('abort', onAbort, { once: true })
   })
   try {
-    return await Promise.race([
-      p.then(r => ({ content: r.content, metadata: r.metadata ?? null })),
-      deadline,
-      aborted,
-    ]).catch(e => ({
+    return await Promise.race([p, deadline, aborted]).catch(e => ({
       content: `tool '${name}' failed: ${String(e)}`,
       metadata: null,
     }))

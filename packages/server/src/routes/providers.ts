@@ -1,10 +1,12 @@
+import { Agent as AbepAgent } from '@abc-protocol/sdk'
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
-import { Providers, parse, validateApiType } from '@zergx-agent/agent'
 import {
-  ProviderBodySchema,
-  ProviderTestBodySchema,
-} from '@zergx-agent/schema'
-import { Agent as AbepAgent } from 'abep-sdk'
+  getModelsDev,
+  Providers,
+  parse,
+  validateApiType,
+} from '@zergx-agent/agent'
+import { ProviderBodySchema, ProviderTestBodySchema } from '@zergx-agent/schema'
 import { err, ok, ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
@@ -159,7 +161,7 @@ export const providerRoutes = new OpenAPIHono<AppEnv>()
   })
   .openapi(getCatalogRoute, async c => {
     const { bus } = c.get('deps')
-    const catalog = await new AbepAgent(bus).getModelsDev()
+    const catalog = await getModelsDev(bus)
     return c.json({ catalog: catalog ?? {} }, 200)
   })
   .openapi(registerProviderRoute, async c => {

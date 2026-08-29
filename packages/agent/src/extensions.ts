@@ -1,9 +1,9 @@
 import {
+  Agent as AbepAgent,
   ExtensionManifestSchema,
   type ExtensionVariable,
   ExtensionVariableSchema,
-} from '@zergx-agent/schema'
-import { Agent as AbepAgent } from 'abep-sdk'
+} from '@abc-protocol/sdk'
 import { ResultAsync } from 'neverthrow'
 import type { Bus } from './bus.js'
 import { parse } from './json.js'
@@ -18,7 +18,7 @@ import { parse } from './json.js'
  */
 
 /** Subject an extension must subscribe to for discovery. */
-export const EXTENSION_DISCOVER_SUBJECT = 'abep.discover'
+export const EXTENSION_DISCOVER_SUBJECT = 'abc.discover'
 
 /** A discovered extension with its declared template variables. */
 export interface ResolvedExtension {
@@ -47,7 +47,6 @@ export function discoverExtensions(
       const parsed = parse(ExtensionManifestSchema, JSON.stringify(env.payload))
       if (parsed.isErr()) continue
       const m = parsed.value
-      if (!m.capabilities.includes('prompt')) continue
       if (seen.has(m.id)) continue
       seen.set(m.id, true)
       out.push({

@@ -46,7 +46,7 @@ export const events = {
   }),
 }
 
-/** Lifecycle event kinds published on `abep.session.lifecycle.{kind}`. */
+/** Lifecycle event kinds published on `abc.session.lifecycle.{kind}`. */
 export type LifecycleEvent = 'created' | 'forked' | 'renamed' | 'deleted'
 
 /**
@@ -62,7 +62,7 @@ export function publishLifecycle(
 ): void {
   void bus
     .inboxPublish(
-      `abep.session.lifecycle.${event}`,
+      `abc.session.lifecycle.${event}`,
       {
         kind: event,
         ...payload,

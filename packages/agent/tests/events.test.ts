@@ -14,7 +14,7 @@ function fakeBus() {
 }
 
 describe('publishLifecycle', () => {
-  it('publishes to notify.lifecycle.session.{event} with kind in payload', async () => {
+  it('publishes to abc.session.lifecycle.{event} with kind in payload', async () => {
     const { bus, published } = fakeBus()
     publishLifecycle(bus, 'created', { session_name: 'acme.api.main' })
     publishLifecycle(bus, 'forked', {
@@ -26,10 +26,10 @@ describe('publishLifecycle', () => {
     await new Promise(r => setImmediate(r))
 
     expect(published.map(p => p.subject)).toEqual([
-      'abep.session.lifecycle.created',
-      'abep.session.lifecycle.forked',
-      'abep.session.lifecycle.renamed',
-      'abep.session.lifecycle.deleted',
+      'abc.session.lifecycle.created',
+      'abc.session.lifecycle.forked',
+      'abc.session.lifecycle.renamed',
+      'abc.session.lifecycle.deleted',
     ])
     expect(published[1]?.payload).toEqual({
       kind: 'forked',

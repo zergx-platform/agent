@@ -1,9 +1,10 @@
+import { Agent as AbepAgent } from '@abc-protocol/sdk'
 import type { Provider, ProviderMap } from '@opencode-ai/models'
 import { Models } from '@opencode-ai/models'
 import { providers as snapshotProviders } from '@opencode-ai/models/snapshot'
-import { Agent as AbepAgent } from 'abep-sdk'
 import { ResultAsync } from 'neverthrow'
 import type { Bus } from './bus.js'
+import { putModelsDev } from './store.js'
 
 /**
  * Fetch the models.dev provider catalog using the official typed client and
@@ -33,11 +34,10 @@ export function refreshModelsDev(bus: Bus): ResultAsync<void, string> {
 
   return live
     .orElse(() => fallback)
-    .andThen(providers => {
-      const agent = new AbepAgent(bus)
-      return ResultAsync.fromPromise(
-        agent.putModelsDev(JSON.stringify(providers)),
+    .andThen(providers =>
+      ResultAsync.fromPromise(
+        putModelsDev(bus, JSON.stringify(providers)),
         e => `cache models.dev: ${String(e)}`,
-      )
-    })
+      ),
+    )
 }

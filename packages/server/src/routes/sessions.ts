@@ -1,6 +1,9 @@
+import { Agent as AbepAgent, isSessionRunning } from '@abc-protocol/sdk'
 import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
+  appendSessionId,
   compactSession,
+  deleteSessionIds,
   fireAndForget,
   interruptRun,
   Mailbox,
@@ -21,7 +24,6 @@ import {
   SessionSettingsBodySchema,
   UndoBodySchema,
 } from '@zergx-agent/schema'
-import { Agent as AbepAgent } from 'abep-sdk'
 import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
@@ -571,7 +573,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     // Keep the cached context id list in sync so the turn's loadHistory does
     // not serve a stale cache missing this just-persisted user message.
     fireAndForget(
-      new AbepAgent(deps.bus).appendSessionId(id, insert.value),
+      appendSessionId(deps.bus, id, insert.value),
       'appendSessionIds',
     )
 
@@ -589,10 +591,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
         Promise.resolve(Sessions.setTip(deps.db, id, tipId)),
         'setTip-rollback',
       )
-      fireAndForget(
-        new AbepAgent(deps.bus).deleteSessionIds(id),
-        'deleteSessionIds',
-      )
+      fireAndForget(deleteSessionIds(deps.bus, id), 'deleteSessionIds')
       return err500(c, `mailbox publish failed: ${String(e)}`)
     }
 
@@ -708,10 +707,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
 
     // The context id cache no longer matches the new tip; drop it so the next
     // load re-walks the chain.
-    fireAndForget(
-      new AbepAgent(deps.bus).deleteSessionIds(sid),
-      'deleteSessionIds',
-    )
+    fireAndForget(deleteSessionIds(deps.bus, sid), 'deleteSessionIds')
 
     return c.json({ ok: true, undone: true }, 200)
   })
@@ -727,7 +723,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
   .openapi(stateRoute, async c => {
     const deps = c.get('deps')
     const sid = c.req.valid('param').id
-    const running = await new AbepAgent(deps.bus).isSessionRunning(sid)
+    const running = await isSessionRunning(deps.bus, sid)
     return c.json({ status: running ? 'busy' : 'idle', parts: [] }, 200)
   })
   .openapi(mailboxRoute, async c => {

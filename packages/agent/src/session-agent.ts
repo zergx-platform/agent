@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import {
+  Agent as AbepAgent,
+  claimSession,
+  releaseSession,
+  renewSession,
+} from '@abc-protocol/sdk'
 import type { PartRow } from '@zergx-agent/schema'
-import { Agent as AbepAgent } from 'abep-sdk'
 import type { ModelMessage, Tool } from 'ai'
 import { streamText } from 'ai'
 import { err, ok, type Result } from 'neverthrow'
@@ -37,6 +42,12 @@ import {
 } from './json.js'
 import { type LlmRegistry, resolveContextLimit } from './llm.js'
 import { logger } from './logger.js'
+import {
+  appendSessionId,
+  getModelsDev,
+  getSessionIds,
+  putSessionIds,
+} from './store.js'
 import {
   buildAiTools,
   discoverToolsCached,
@@ -93,13 +104,13 @@ export function watchMailboxWake(deps: AgentDeps): () => void {
  */
 export async function handleMailboxMessage(
   deps: AgentDeps,
-  msg: { id: string; session_name: string; type: string; payload?: unknown },
+  msg: { id: string; sessionName: string; type: string; payload?: unknown },
 ): Promise<void> {
   const env = {
     // Defensive: a wake-style message without a producer id would fail the
     // uuid-typed PG key on '' and poison the consumer; mint one instead.
     id: msg.id || randomUUID(),
-    session_name: msg.session_name,
+    session_name: msg.sessionName,
     type: msg.type,
     payload: msg.payload,
   }
@@ -149,7 +160,7 @@ export async function runSessionTurn(
     const agent = new AbepAgent(deps.bus)
     let revision: number | null
     try {
-      revision = await agent.claimSession(sid)
+      revision = await claimSession(deps.bus, sid)
     } catch (e) {
       logger.warn({ sid, err: String(e) }, 'claim error')
       return
@@ -165,7 +176,7 @@ export async function runSessionTurn(
     // returns the NEW revision, which must be fed into the next renew; using
     // the original revision forever would fail every update after the first.
     const renewTimer = setInterval(() => {
-      void agent.renewSession(sid, revision as number).then(
+      void renewSession(deps.bus, sid, revision as number).then(
         next => {
           if (next === null) {
             logger.warn(
@@ -197,7 +208,7 @@ export async function runSessionTurn(
       }
     } finally {
       clearInterval(renewTimer)
-      await agent.releaseSession(sid)
+      await releaseSession(deps.bus, sid)
     }
 
     // Released: confirm nothing arrived during the release window. If it did,
@@ -633,10 +644,7 @@ async function persistStep(
   }
   await Sessions.setTip(deps.db, sid, messageId)
   // Keep the per-session context id cache in step with the write.
-  fireAndForget(
-    new AbepAgent(deps.bus).appendSessionId(sid, messageId),
-    'appendSessionIds',
-  )
+  fireAndForget(appendSessionId(deps.bus, sid, messageId), 'appendSessionIds')
 }
 
 /** Fold a mailbox event into the chain as an `event` message. */
@@ -653,7 +661,7 @@ async function persistEvent(deps: AgentDeps, sid: string, payload: string) {
     await Parts.insert(deps.db, insert.value, 'text', 0, { text })
     await Sessions.setTip(deps.db, sid, insert.value)
     fireAndForget(
-      new AbepAgent(deps.bus).appendSessionId(sid, insert.value),
+      appendSessionId(deps.bus, sid, insert.value),
       'appendSessionIds',
     )
   }
@@ -710,7 +718,7 @@ async function persistUserPrompt(
     await Parts.insert(deps.db, insert.value, 'text', 0, { text })
     await Sessions.setTip(deps.db, sid, insert.value)
     fireAndForget(
-      new AbepAgent(deps.bus).appendSessionId(sid, insert.value),
+      appendSessionId(deps.bus, sid, insert.value),
       'appendSessionIds',
     )
   }
@@ -766,7 +774,7 @@ async function loadHistory(
   if (tipId === null) return []
 
   // Cache hit: use the cached id list to fetch rows + parts directly.
-  const cached = await new AbepAgent(deps.bus).getSessionIds(sid)
+  const cached = await getSessionIds(deps.bus, sid)
   if (cached !== null) {
     const rows = await Messages.byIds(deps.db, cached)
     const parts = await Parts.listByMessages(deps.db, cached)
@@ -783,10 +791,7 @@ async function loadHistory(
   if (parts.isErr()) return []
 
   // Backfill the cache with the full bounded id list.
-  fireAndForget(
-    new AbepAgent(deps.bus).putSessionIds(sid, ids),
-    'putSessionIds',
-  )
+  fireAndForget(putSessionIds(deps.bus, sid, ids), 'putSessionIds')
 
   return spliceContext(chain.value, parts.value)
 }
@@ -931,7 +936,8 @@ export async function compactSession(
   const chainAfter = await Messages.chain(deps.db, cmId, 100_000, null)
   if (chainAfter.isOk()) {
     fireAndForget(
-      new AbepAgent(deps.bus).putSessionIds(
+      putSessionIds(
+        deps.bus,
         sid,
         chainAfter.value.map(m => m.id),
       ),
@@ -944,7 +950,7 @@ export async function compactSession(
 }
 
 async function contextLimit(deps: AgentDeps, modelId: string): Promise<number> {
-  const catalog = await new AbepAgent(deps.bus).getModelsDev()
+  const catalog = await getModelsDev(deps.bus)
   if (catalog !== null && catalog !== undefined) {
     return resolveContextLimit(
       catalog,

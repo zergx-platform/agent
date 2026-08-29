@@ -1,4 +1,4 @@
-import { Agent } from 'abep-sdk'
+import { Agent } from '@abc-protocol/sdk'
 import { describe, expect, it } from 'vitest'
 import { mailboxSubject, natsToken, sseSubject } from '../src/bus.js'
 
@@ -34,8 +34,8 @@ describe('natsToken', () => {
 
   it('subjects never contain the raw session name', () => {
     const sid = 'acme:my.repo:main'
-    expect(sseSubject(sid)).toBe(`abep.session.events.${natsToken(sid)}`)
-    expect(mailboxSubject(sid)).toBe(`abep.mailbox.${natsToken(sid)}`)
+    expect(sseSubject(sid)).toBe(`abc.session.events.${natsToken(sid)}`)
+    expect(mailboxSubject(sid)).toBe(`abc.mailbox.${natsToken(sid)}`)
     expect(sseSubject(sid)).not.toContain(':')
   })
 })
@@ -48,5 +48,5 @@ describe('Agent lease (moved from natsErrorCode/claimSession)', () => {
   })
 })
 
-// Keep natsErrorCode import surface (removed: now handled inside abep-sdk).
+// Keep the Agent import surface exercised (lease/subjects live in the SDK tests).
 void Agent

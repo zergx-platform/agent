@@ -17,6 +17,8 @@ function fakeResultBus(messages: Array<Record<string, unknown>>) {
     subscribe: () => Promise.resolve(sub),
     publish: () => Promise.resolve(),
     objectGet: () => Promise.resolve(new Uint8Array()),
+    request: (ch: string) =>
+      Promise.resolve({ payload: messages[Math.max(0, i - 1)] }),
   } as unknown as Bus
 }
 

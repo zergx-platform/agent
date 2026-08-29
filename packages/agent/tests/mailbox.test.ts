@@ -18,7 +18,7 @@ describe('handleMailboxMessage', () => {
 
     await handleMailboxMessage(deps, {
       id: 'e1',
-      session_name: 'a:b:main',
+      sessionName: 'a:b:main',
       type: 'event',
       payload: { text: 'hi' },
     })
@@ -36,7 +36,7 @@ describe('handleMailboxMessage', () => {
     await expect(
       handleMailboxMessage({} as AgentDeps, {
         id: 'e2',
-        session_name: 'gone',
+        sessionName: 'gone',
         type: 'event',
         payload: {},
       }),
@@ -50,7 +50,7 @@ describe('handleMailboxMessage', () => {
     await expect(
       handleMailboxMessage({} as AgentDeps, {
         id: 'e3',
-        session_name: 'a:b:main',
+        sessionName: 'a:b:main',
         type: 'event',
         payload: {},
       }),
