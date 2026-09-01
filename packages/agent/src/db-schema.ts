@@ -18,6 +18,15 @@ export const sessions = pgTable('sessions', {
     .notNull()
     .default(0),
   totalTokens: bigint('total_tokens', { mode: 'number' }).notNull().default(0),
+  // Last single request (one LLM step), overwritten not accumulated. The
+  // cumulative *_tokens above are reserved for billing/history; the chat
+  // footer shows the most recent request's context size.
+  lastInputTokens: bigint('last_input_tokens', { mode: 'number' })
+    .notNull()
+    .default(0),
+  lastOutputTokens: bigint('last_output_tokens', { mode: 'number' })
+    .notNull()
+    .default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   lastUsedAt: text('last_used_at'),

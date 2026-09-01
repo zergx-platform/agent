@@ -38,7 +38,12 @@ export const sseSubject = (sid: string) =>
 // stream/bucket names on the abc wire (session events share the mailbox
 // stream; the object bucket carries tool payloads)
 export const STREAM_MAILBOX = 'ABC_MAILBOX'
-export const BUCKET_SESSION_STATE = 'abc-session-state'
+// Message-fact projection bucket. Deliberately DIFFERENT from the SDK's
+// lease bucket 'abc-session-state' (LEASE_BUCKET in lease.ts): the lease
+// needs per-key expiry while facts persist, and both key a session by
+// sha256(sid)[:22] — sharing a bucket would let a fact overwrite the run
+// lease (claimSession kvs-create fails => the session is never processed).
+export const BUCKET_SESSION_STATE = 'abc-session-meta'
 export const BUCKET_TOOL = 'ABC_TOOL'
 export const SESSION_LEASE_MS = 30_000
 export const MODELS_DEV_KEY = 'models-dev-catalog.json'

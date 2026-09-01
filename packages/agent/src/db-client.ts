@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     input_tokens BIGINT NOT NULL DEFAULT 0,
     output_tokens BIGINT NOT NULL DEFAULT 0,
     total_tokens BIGINT NOT NULL DEFAULT 0,
+    last_input_tokens BIGINT NOT NULL DEFAULT 0,
+    last_output_tokens BIGINT NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (NOW()::text),
     updated_at TEXT NOT NULL DEFAULT (NOW()::text),
     last_used_at TEXT
@@ -156,6 +158,9 @@ async function migrateSchema(sql: Sql): Promise<void> {
   await sql.unsafe(`
     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_turns INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS system_prompt TEXT NOT NULL DEFAULT '';
+    -- Latest single-request token usage (overwrite, not cumulative).
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_input_tokens BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_output_tokens BIGINT NOT NULL DEFAULT 0;
     -- Retired dead columns (always DEFAULT ''; tool identity lives in the
     -- parts table). Drop is safe: nothing wrote to them.
     ALTER TABLE messages DROP COLUMN IF EXISTS tool_name;

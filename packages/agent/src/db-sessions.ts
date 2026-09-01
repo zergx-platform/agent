@@ -17,6 +17,8 @@ const toRow = (r: Row): SessionRow => ({
   input_tokens: Number(r.inputTokens),
   output_tokens: Number(r.outputTokens),
   total_tokens: Number(r.totalTokens),
+  last_input_tokens: Number(r.lastInputTokens),
+  last_output_tokens: Number(r.lastOutputTokens),
   created_at: r.createdAt,
   updated_at: r.updatedAt,
   last_used_at: r.lastUsedAt,
@@ -161,6 +163,8 @@ export const Sessions = {
                  input_tokens = input_tokens + ${input},
                  output_tokens = output_tokens + ${output},
                  total_tokens = total_tokens + ${input + output},
+                 last_input_tokens = ${input},
+                 last_output_tokens = ${output},
                  last_used_at = ${nowStr()}
                WHERE name = ${name}`,
         ),

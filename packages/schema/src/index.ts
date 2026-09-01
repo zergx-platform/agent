@@ -39,6 +39,8 @@ export const SessionRowSchema = z.object({
   input_tokens: z.number().int(),
   output_tokens: z.number().int(),
   total_tokens: z.number().int(),
+  last_input_tokens: z.number().int(),
+  last_output_tokens: z.number().int(),
   created_at: z.string(),
   updated_at: z.string(),
   last_used_at: z.string().nullable(),
