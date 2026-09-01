@@ -1,5 +1,5 @@
 import {
-  Agent as AbepAgent,
+  Agent as AbcAgent,
   ExtensionManifestSchema,
   type ExtensionVariable,
   ExtensionVariableSchema,
@@ -12,9 +12,9 @@ import { parse } from './json.js'
  * Extension-server discovery + template-variable resolution over the bus.
  *
  * There is no HTTP discovery and no static server list: an extension is any
- * bus client that (a) subscribes to `abep.discover` and replies with its
+ * bus client that (a) subscribes to `abc.discover` and replies with its
  * `ExtensionManifestSchema` JSON, and (b) optionally answers
- * `abep.var.{id}.{name}` requests (lazy variable fallback).
+ * `abc.var.{id}.{name}` requests (lazy variable fallback).
  */
 
 /** Subject an extension must subscribe to for discovery. */
@@ -88,7 +88,7 @@ export async function renderTemplate(
   const matches = [...template.matchAll(VAR_TOKEN)]
   if (matches.length === 0) return template
 
-  const agent = new AbepAgent(bus)
+  const agent = new AbcAgent(bus)
   let out = template
   for (const match of matches) {
     const [full, provider, name] = match

@@ -11,7 +11,6 @@ export const sessions = pgTable('sessions', {
   model: text('model').notNull().default(''),
   preset: text('preset').notNull().default(''),
   tipId: text('tip_id'),
-  lastReadAt: text('last_read_at'),
   maxTurns: integer('max_turns').notNull().default(0),
   systemPrompt: text('system_prompt').notNull().default(''),
   inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
@@ -30,8 +29,6 @@ export const messages = pgTable('messages', {
   prevId: text('prev_id').references((): AnyPgColumn => messages.id, {
     onDelete: 'set null',
   }),
-  toolName: text('tool_name').notNull().default(''),
-  toolCallId: text('tool_call_id').notNull().default(''),
   createdAt: text('created_at').notNull(),
 })
 

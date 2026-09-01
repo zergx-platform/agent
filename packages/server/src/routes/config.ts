@@ -428,7 +428,6 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     return c.json(
       {
         providers,
-        cdp_url: process.env.ZERGX_CDP_URL ?? '',
         http_proxy: process.env.ZERGX_HTTP_PROXY ?? '',
         self_base: process.env.ZERGX_SELF_BASE ?? '',
       },

@@ -1,4 +1,4 @@
-import { Agent as AbepAgent } from '@abc-protocol/sdk'
+import { Agent as AbcAgent } from '@abc-protocol/sdk'
 import {
   ExtensionManifestSchema,
   type ExtensionTool,
@@ -127,7 +127,7 @@ function toolToDiscovered(extId: string, t: ExtensionTool): DiscoveredTool {
 /**
  * Build the AI SDK tool set from discovered manifests. `sessionId`, when
  * given, rides the first-class `session_name` envelope field (carried by
- * AbepAgent.callTool) — it is NOT injected into tool arguments, so the model
+ * AbcAgent.callTool) — it is NOT injected into tool arguments, so the model
  * can neither see nor forge it.
  */
 export function buildAiTools(
@@ -149,7 +149,7 @@ export function buildAiTools(
       inputSchema: jsonSchema(t.inputSchema),
       execute: async (args, { toolCallId }) => {
         return await raceFinal(
-          new AbepAgent(bus)
+          new AbcAgent(bus)
             .callTool(sessionId ?? '', t.extId, t.name, toolCallId, args ?? {})
             .then(r => ({
               content: r.content ?? '',

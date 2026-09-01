@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto'
 import type {
-  Bus as AbepBus,
-  Envelope as AbepEnvelope,
-  InboxMsg as AbepInboxMsg,
-  Subscription as AbepSubscription,
+  Bus as AbcBus,
+  Envelope as AbcEnvelope,
+  InboxMsg as AbcInboxMsg,
+  Subscription as AbcSubscription,
 } from '@abc-protocol/sdk'
-import { Agent as AbepAgent, connectNatsBus } from '@abc-protocol/sdk'
+import { Agent as AbcAgent, connectNatsBus } from '@abc-protocol/sdk'
 import { ResultAsync } from 'neverthrow'
 
 /**
@@ -13,10 +13,10 @@ import { ResultAsync } from 'neverthrow'
  * @abc-protocol/sdk NATS transport. Wire subjects use the abc protocol
  * prefix (`abc.`) and are shared verbatim with the extension SDKs.
  */
-export type Bus = AbepBus
-export type Subscription = AbepSubscription
-export type Envelope = AbepEnvelope
-export type InboxMsg = AbepInboxMsg
+export type Bus = AbcBus
+export type Subscription = AbcSubscription
+export type Envelope = AbcEnvelope
+export type InboxMsg = AbcInboxMsg
 
 export async function connectBus(
   natsUrl: string,
@@ -28,7 +28,7 @@ export async function connectBus(
 }
 
 /** The agent-side role over the abc transport. */
-export const Agent = AbepAgent
+export const Agent = AbcAgent
 
 // wire subject helpers (abc protocol subjects, prefix `abc.`)
 export const mailboxSubject = (sid: string) => `abc.mailbox.${natsToken(sid)}`

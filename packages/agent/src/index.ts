@@ -21,6 +21,12 @@ export * from './logger.js'
 export * from './models-dev.js'
 export * from './session-agent.js'
 export {
+  calibrateMessageFacts,
+  factFromPersist,
+  projectMessageFact,
+  type SessionMessageFact,
+} from './session-state.js'
+export {
   appendSessionId,
   deleteSessionIds,
   getModelsDev,

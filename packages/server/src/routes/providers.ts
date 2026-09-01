@@ -1,4 +1,4 @@
-import { Agent as AbepAgent } from '@abc-protocol/sdk'
+import { Agent as AbcAgent } from '@abc-protocol/sdk'
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   getModelsDev,

@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import {
   type AgentDeps,
   type Bus,
+  calibrateMessageFacts,
   connectBus,
   connectDb,
   type Db,
@@ -120,6 +121,11 @@ async function main(): Promise<void> {
     process.exit(1)
   }
   const bus: Bus = busRes.value
+
+  // One-time message-fact calibration: refresh the abc-session-state KV
+  // projection from PG so chat-list previews are correct even for sessions
+  // that predate the projection or whose KV writes were missed.
+  void calibrateMessageFacts(bus, db)
 
   const llm = new LlmRegistry(config)
   const deps: AgentDeps = {

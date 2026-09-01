@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     model TEXT NOT NULL DEFAULT '',
     preset TEXT NOT NULL DEFAULT '',
     tip_id TEXT,
-    last_read_at TEXT,
     max_turns INTEGER NOT NULL DEFAULT 0,
     system_prompt TEXT NOT NULL DEFAULT '',
     input_tokens BIGINT NOT NULL DEFAULT 0,
@@ -49,8 +48,6 @@ CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     role TEXT NOT NULL,
     prev_id TEXT,
-    tool_name TEXT NOT NULL DEFAULT '',
-    tool_call_id TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (NOW()::text)
 );
 CREATE INDEX IF NOT EXISTS idx_messages_prev ON messages (prev_id);
@@ -98,30 +95,6 @@ CREATE TABLE IF NOT EXISTS providers (
     models TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS orgs (
-    org TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL DEFAULT (NOW()::text)
-);
-
-CREATE TABLE IF NOT EXISTS repos (
-    org TEXT NOT NULL,
-    repo TEXT NOT NULL,
-    default_branch TEXT NOT NULL DEFAULT 'main',
-    git_url TEXT,
-    created_at TEXT NOT NULL DEFAULT (NOW()::text),
-    PRIMARY KEY (org, repo)
-);
-
-CREATE TABLE IF NOT EXISTS repo_mirrors (
-    org TEXT NOT NULL,
-    repo TEXT NOT NULL,
-    mirror_url TEXT NOT NULL,
-    secret TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (NOW()::text),
-    updated_at TEXT NOT NULL DEFAULT (NOW()::text),
-    PRIMARY KEY (org, repo)
 );
 `
 
@@ -183,6 +156,13 @@ async function migrateSchema(sql: Sql): Promise<void> {
   await sql.unsafe(`
     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_turns INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS system_prompt TEXT NOT NULL DEFAULT '';
+    -- Retired dead columns (always DEFAULT ''; tool identity lives in the
+    -- parts table). Drop is safe: nothing wrote to them.
+    ALTER TABLE messages DROP COLUMN IF EXISTS tool_name;
+    ALTER TABLE messages DROP COLUMN IF EXISTS tool_call_id;
+    -- Retired: read/unread state moved to the platform (vars KV under its
+    -- own extension id). The agent no longer stores or interprets it.
+    ALTER TABLE sessions DROP COLUMN IF EXISTS last_read_at;
   `)
 }
 

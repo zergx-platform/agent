@@ -23,10 +23,7 @@ const origin =
 
 export const client = hc<AppType>(`${origin}/api/v1`)
 
-const sessionJsonSchema = SessionRowSchema.extend({
-  base_image: z.null(),
-  unread: z.number(),
-})
+const sessionJsonSchema = SessionRowSchema
 
 export type Session = z.infer<typeof sessionJsonSchema>
 

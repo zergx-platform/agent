@@ -34,7 +34,6 @@ export const SessionRowSchema = z.object({
   model: z.string(),
   preset: z.string(),
   tip_id: z.string().nullable(),
-  last_read_at: z.string().nullable(),
   max_turns: z.number().int(),
   system_prompt: z.string(),
   input_tokens: z.number().int(),
@@ -50,8 +49,6 @@ export const MessageRowSchema = z.object({
   id: z.string(),
   role: z.string(),
   prev_id: z.string().nullable(),
-  tool_name: z.string(),
-  tool_call_id: z.string(),
   created_at: z.string(),
 })
 export type MessageRow = z.infer<typeof MessageRowSchema>
@@ -218,7 +215,7 @@ export interface ApiErrorBody {
 // the UI derives its Hono client with `hc<AppType>()` from
 // @zergx-agent/server (`AppType = typeof app`). No hand-written contract.
 
-export type SessionJson = SessionRow & { base_image: null; unread: number }
+export type SessionJson = SessionRow
 
 export const ProviderJsonSchema = z.object({
   provider_id: z.string(),

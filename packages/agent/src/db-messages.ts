@@ -17,8 +17,6 @@ const toRow = (r: typeof messages.$inferSelect): MessageRow => ({
   id: r.id,
   role: r.role,
   prev_id: r.prevId,
-  tool_name: r.toolName,
-  tool_call_id: r.toolCallId,
   created_at: r.createdAt,
 })
 
@@ -165,8 +163,6 @@ const ChainRowSchema = z.object({
   id: z.string(),
   role: z.string(),
   prev_id: z.string().nullable(),
-  tool_name: z.string(),
-  tool_call_id: z.string(),
   created_at: z.string(),
 })
 
@@ -196,15 +192,14 @@ function rawChainRows(
     if (cursor === null) return []
     return await db.$client`
       WITH RECURSIVE chain AS (
-        SELECT id, role, prev_id, tool_name, tool_call_id, created_at,
+        SELECT id, role, prev_id, created_at,
                0 AS depth
         FROM messages WHERE id = ${cursor}
         UNION
-        SELECT m.id, m.role, m.prev_id, m.tool_name, m.tool_call_id,
-               m.created_at, c.depth + 1
+        SELECT m.id, m.role, m.prev_id, m.created_at, c.depth + 1
         FROM messages m JOIN chain c ON m.id = c.prev_id
       )
-      SELECT id, role, prev_id, tool_name, tool_call_id, created_at
+      SELECT id, role, prev_id, created_at
       FROM chain WHERE depth < ${limit}
       ORDER BY depth DESC`
   }, 'query message chain')
@@ -234,8 +229,6 @@ const toChain = (r: z.infer<typeof ChainRowSchema>): ChainMessage => ({
   content: '',
   tool_parts: [],
   prev_id: r.prev_id,
-  tool_name: r.tool_name,
-  tool_call_id: r.tool_call_id,
   created_at: r.created_at,
 })
 

@@ -1,4 +1,4 @@
-import { Agent as AbepAgent, isSessionRunning } from '@abc-protocol/sdk'
+import { Agent as AbcAgent, isSessionRunning } from '@abc-protocol/sdk'
 import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   appendSessionId,
@@ -31,7 +31,7 @@ import { type AppEnv, EidDedup } from '../context.js'
 
 /** Serialize a session row into the zergx UI contract. */
 function sessionToJson(s: SessionRow): Record<string, unknown> {
-  return { ...s, base_image: null, unread: 0 }
+  return { ...s }
 }
 
 function err500(c: Context, message: string) {
@@ -48,7 +48,7 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
   if (sid === undefined) {
     return c.json({ ok: false, error: 'session not found' }, 404)
   }
-  const agent = new AbepAgent(bus)
+  const agent = new AbcAgent(bus)
   return streamSSE(c, async stream => {
     const subject = sseSubject(sid)
 
@@ -377,21 +377,6 @@ const undoRoute = createRoute({
   },
 })
 
-const readRoute = createRoute({
-  method: 'post',
-  path: '/sessions/{id}/read',
-  summary: 'Mark read',
-  request: { params: z.object({ id: z.string() }) },
-  responses: {
-    200: {
-      description: 'Ok',
-      content: {
-        'application/json': { schema: z.object({ ok: z.boolean() }) },
-      },
-    },
-  },
-})
-
 const stateRoute = createRoute({
   method: 'get',
   path: '/sessions/{id}/state',
@@ -581,7 +566,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     // consumer persists it into PG and runs the turn; the HTTP route never
     // writes the mailbox table directly.
     try {
-      await new AbepAgent(deps.bus).publishMailbox(id, 'user_prompt', {
+      await new AbcAgent(deps.bus).publishMailbox(id, 'user_prompt', {
         text: prompt,
       })
     } catch (e) {
@@ -710,15 +695,6 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     fireAndForget(deleteSessionIds(deps.bus, sid), 'deleteSessionIds')
 
     return c.json({ ok: true, undone: true }, 200)
-  })
-  .openapi(readRoute, async c => {
-    const deps = c.get('deps')
-    const sid = c.req.valid('param').id
-    const r = await Sessions.updateSettings(deps.db, sid, {
-      lastReadAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-    })
-    void r
-    return c.json({ ok: true }, 200)
   })
   .openapi(stateRoute, async c => {
     const deps = c.get('deps')

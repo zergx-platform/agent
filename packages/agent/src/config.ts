@@ -18,8 +18,6 @@ export interface ServerConfig {
   defaultMaxTurns: number
   defaultTemperature: number
   defaultMaxTokens: number
-  memoryUrl: string
-  repoManagerUrl: string
   /** Model context window (estimated tokens). Compaction budgets are fractions of it. */
   compactionContextTokens: number
 }
@@ -52,14 +50,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     defaultMaxTurns: Number.parseInt(or('ZERGX_DEFAULT_MAX_TURNS', '25'), 10),
     defaultTemperature: Number.parseFloat(or('ZERGX_LLM_TEMPERATURE', '0')),
     defaultMaxTokens: Number.parseInt(or('ZERGX_LLM_MAX_TOKENS', '32768'), 10),
-    memoryUrl: or(
-      'ZERGX_MEMORY_URL',
-      'http://memory-tools.zergx.svc.cluster.local:80',
-    ),
-    repoManagerUrl: or(
-      'ZERGX_REPO_MANAGER_URL',
-      'http://jjlab.zergx.svc.cluster.local:80',
-    ),
     compactionContextTokens: Number.parseInt(
       or('ZERGX_COMPACTION_CONTEXT_TOKENS', '200000'),
       10,

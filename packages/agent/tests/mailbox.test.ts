@@ -5,7 +5,7 @@ import type { AgentDeps } from '../src/session-agent.js'
 import { handleMailboxMessage } from '../src/session-agent.js'
 
 describe('handleMailboxMessage', () => {
-  it('persists a valid envelope (handler acks via abep consumer)', async () => {
+  it('persists a valid envelope (handler acks via abc consumer)', async () => {
     const enqueue = vi
       .spyOn(Mailbox, 'enqueueIdempotent')
       .mockReturnValue(ok('e1') as never)

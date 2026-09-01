@@ -43,7 +43,7 @@ describe('natsToken', () => {
 describe('Agent lease (moved from natsErrorCode/claimSession)', () => {
   it('claims, renews and releases a session lease', async () => {
     // A fake Bus exercising the Agent high-level lease methods is covered by
-    // abep-sdk's own tests; here we just assert the subjects are stable.
+    // abc-protocol sdk's own tests; here we just assert the subjects are stable.
     expect(mailboxSubject('a:b:main')).toBe(mailboxSubject('a:b:main'))
   })
 })

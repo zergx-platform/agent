@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
-  Agent as AbepAgent,
+  Agent as AbcAgent,
   claimSession,
   releaseSession,
   renewSession,
@@ -23,6 +23,7 @@ import {
 import type { ServerConfig } from './config.js'
 import { isContextOverflowFailure } from './context-overflow.js'
 import type { Db } from './db-client.js'
+import { nowStr } from './db-client.js'
 import { Presets } from './db-kv.js'
 import { Mailbox } from './db-mailbox.js'
 import { type ChainMessage, Messages } from './db-messages.js'
@@ -42,6 +43,7 @@ import {
 } from './json.js'
 import { type LlmRegistry, resolveContextLimit } from './llm.js'
 import { logger } from './logger.js'
+import { factFromPersist, projectMessageFact } from './session-state.js'
 import {
   appendSessionId,
   getModelsDev,
@@ -77,7 +79,7 @@ const DRAIN_GRACE_MS = 200
 export function watchMailboxWake(deps: AgentDeps): () => void {
   let stopped = false
   let stop: (() => void | Promise<void>) | null = null
-  const agent = new AbepAgent(deps.bus)
+  const agent = new AbcAgent(deps.bus)
   void agent
     .consumeMailbox(async msg => {
       if (stopped) return
@@ -157,7 +159,7 @@ export async function runSessionTurn(
   sid: string,
 ): Promise<void> {
   for (;;) {
-    const agent = new AbepAgent(deps.bus)
+    const agent = new AbcAgent(deps.bus)
     let revision: number | null
     try {
       revision = await claimSession(deps.bus, sid)
@@ -261,7 +263,6 @@ interface TurnCtx {
   tools: Record<string, Tool>
   system: string
   maxTurns: number
-  resolvedModel: string
   model: import('ai').LanguageModel
 }
 
@@ -582,7 +583,6 @@ async function prepare(
     tools,
     system: `${renderedPrompt}\n\n${env}`,
     maxTurns,
-    resolvedModel: resolved.value.modelId,
     model: resolved.value.model,
   }
 }
@@ -645,6 +645,12 @@ async function persistStep(
   await Sessions.setTip(deps.db, sid, messageId)
   // Keep the per-session context id cache in step with the write.
   fireAndForget(appendSessionId(deps.bus, sid, messageId), 'appendSessionIds')
+  // Mirror the newest-message fact to the bus KV for DB-less consumers.
+  projectMessageFact(
+    deps.bus,
+    sid,
+    factFromPersist(nowStr(), 'assistant', text),
+  )
 }
 
 /** Fold a mailbox event into the chain as an `event` message. */
@@ -664,6 +670,7 @@ async function persistEvent(deps: AgentDeps, sid: string, payload: string) {
       appendSessionId(deps.bus, sid, insert.value),
       'appendSessionIds',
     )
+    projectMessageFact(deps.bus, sid, factFromPersist(nowStr(), 'event', text))
   }
 }
 
@@ -721,6 +728,7 @@ async function persistUserPrompt(
       appendSessionId(deps.bus, sid, insert.value),
       'appendSessionIds',
     )
+    projectMessageFact(deps.bus, sid, factFromPersist(nowStr(), 'user', text))
   }
 }
 
@@ -931,6 +939,11 @@ export async function compactSession(
   const part = await Parts.insertSummary(deps.db, cmId, summary, tailFromId)
   if (part.isErr()) return err(part.error)
   await Sessions.setTip(deps.db, sid, cmId)
+  projectMessageFact(
+    deps.bus,
+    sid,
+    factFromPersist(nowStr(), COMPACTION_ROLE, summary),
+  )
 
   // Rewrite the cache to the new bounded context id list (with the cm).
   const chainAfter = await Messages.chain(deps.db, cmId, 100_000, null)

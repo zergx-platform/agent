@@ -12,7 +12,6 @@ const toRow = (r: Row): SessionRow => ({
   model: r.model,
   preset: r.preset,
   tip_id: r.tipId,
-  last_read_at: r.lastReadAt,
   max_turns: r.maxTurns,
   system_prompt: r.systemPrompt,
   input_tokens: Number(r.inputTokens),
@@ -30,7 +29,6 @@ export interface SessionPatch {
   preset?: string | undefined
   maxTurns?: number | undefined
   systemPrompt?: string | undefined
-  lastReadAt?: string | undefined
 }
 
 export const Sessions = {
@@ -193,6 +191,5 @@ function patchToDrizzle(
   if (patch.preset !== undefined) set.preset = patch.preset
   if (patch.maxTurns !== undefined) set.maxTurns = patch.maxTurns
   if (patch.systemPrompt !== undefined) set.systemPrompt = patch.systemPrompt
-  if (patch.lastReadAt !== undefined) set.lastReadAt = patch.lastReadAt
   return set
 }
