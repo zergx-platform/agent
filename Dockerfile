@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Base images default to the in-cluster artifact registry (buildkitd trusts it
 # as an insecure registry); override with --build-arg when building elsewhere.
-ARG REGISTRY=forgejo.develop.10.199.64.20.nip.io/root
+ARG REGISTRY=jj-lab.temp.svc.cluster.local
 FROM ${REGISTRY}/node:26-alpine AS build
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
