@@ -10,6 +10,7 @@ import {
   loadConfig,
   logger,
   Mailbox,
+  makeBlobStore,
   refreshModelsDev,
   runSessionTurn,
   watchMailboxWake,
@@ -128,12 +129,14 @@ async function main(): Promise<void> {
   void calibrateMessageFacts(bus, db)
 
   const llm = new LlmRegistry(config)
+  const files = makeBlobStore(bus)
   const deps: AgentDeps = {
     db,
     sql: db.$client,
     bus,
     config,
     llm,
+    files,
   }
 
   // Build the full outer app: deps-injection + error handling + sea-static are

@@ -31,6 +31,7 @@ import { Parts } from './db-parts.js'
 import { Sessions } from './db-sessions.js'
 import { events, pushEvent } from './events.js'
 import { renderTemplate } from './extensions.js'
+import type { BlobStore } from './files.js'
 import { rebuildHistory } from './history.js'
 import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
@@ -62,6 +63,7 @@ export interface AgentDeps {
   bus: Bus
   config: ServerConfig
   llm: LlmRegistry
+  files: BlobStore
 }
 
 const DRAIN_GRACE_MS = 200

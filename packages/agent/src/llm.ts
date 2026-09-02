@@ -90,6 +90,24 @@ export interface ResolvedModel {
   modelId: string
 }
 
+/**
+ * Parse a `provider/model` reference (the model string used by the exposed
+ * single-turn LLM endpoint). Extensions pass `provider_id/model_id` so the
+ * provider is picked explicitly instead of by model-id lookup.
+ * Returns null for any malformed reference.
+ */
+export function parseProviderModelRef(
+  ref: string,
+): { providerId: string; modelId: string } | null {
+  if (ref === '') return null
+  const idx = ref.indexOf('/')
+  if (idx <= 0 || idx === ref.length - 1) return null
+  const providerId = ref.slice(0, idx)
+  const modelId = ref.slice(idx + 1)
+  if (providerId === '' || modelId === '') return null
+  return { providerId, modelId }
+}
+
 const CatalogModelSchema = z.object({
   limit: z
     .object({
@@ -193,6 +211,34 @@ export class LlmRegistry {
       modelId,
     )
     return fallback.map(model => ({ model, modelId }))
+  }
+
+  /**
+   * Resolve an explicit `provider_id/model_id` reference from a registered
+   * provider. The referenced provider must exist; no fallback is applied
+   * (a tool that asks for a specific model wants that model or an error).
+   */
+  async resolveByProvider(
+    db: Db,
+    providerId: string,
+    modelId: string,
+  ): Promise<Result<ResolvedModel, string>> {
+    const rows = await Providers.list(db)
+    if (rows.isErr()) return err(rows.error)
+    const hit = rows.value.find(r => r.provider_id === providerId)
+    if (hit === undefined) {
+      return err(`provider not found: ${providerId}`)
+    }
+    const creds: ProviderCredentials = {
+      apiType: hit.api_type,
+      baseUrl: hit.base_url,
+      apiKey: hit.api_key,
+      headers: parseHeaders(hit.headers),
+    }
+    const built = buildModelForApiType(creds, modelId)
+    if (built.isErr()) return err(built.error)
+    this.cache.set(hit.provider_id, built.value)
+    return ok({ model: built.value, modelId })
   }
 }
 

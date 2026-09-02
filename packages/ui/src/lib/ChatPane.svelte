@@ -3,7 +3,7 @@
   import { api, type Session } from '$lib/api'
   import { parse, SSEEnvelopeSchema, SseParamsSchema } from '@zergx-agent/schema'
   import { markdown } from '$lib/markdown'
-  import { Send, Square, GitFork, Mailbox, FilePenLine, ChevronDown, Undo2, Layers } from '@lucide/svelte'
+  import { Send, Square, GitFork, Mailbox, FilePenLine, ChevronDown, Undo2, Layers, PenLine } from '@lucide/svelte'
   import MailboxPanel from '$lib/MailboxPanel.svelte'
   import ToolCallLog from '$lib/ToolCallLog.svelte'
   import { Button } from '$lib/components/ui/button'
@@ -28,8 +28,13 @@
   let presets: { id: string }[] = $state([])
   let showModelPicker = $state(false)
   let showPresetPicker = $state(false)
+  let attachInput: HTMLInputElement | null = $state(null)
+  let pends: { code: string; name: string; mime: string; size: number }[] = $state([])
+  let uploading = $state(false)
 
   let es: EventSource | null = null
+
+  const FILE_REF = /\[附件\s+([^|\]]+)\s*\|\s*file:([0-9a-zA-Z]+)\s*\|\s*([^|\]]*)\s*\|\s*([^\]]*)\]/g
 
   function compact() {
     void api.compact(active.name).match(
@@ -133,20 +138,48 @@
 
   function send() {
     const text = input.trim()
-    if (text === '' || streaming) return
-    messages = [...messages, { id: `local-${Date.now()}`, role: 'user', content: text }]
+    const att = pends
+    const full = att.length > 0
+      ? `${att.map(a => `[附件 ${a.name || a.code} | file:${a.code} | ${a.mime} | ${a.size ?? '?'}]`).join('\n')}\n`
+      : ''
+    const message = full + text
+    if ((text === '' && att.length === 0) || streaming) return
+    messages = [...messages, { id: `local-${Date.now()}`, role: 'user', content: message }]
     toolLogs = []
     input = ''
+    pends = []
     assistantBuf = ''
     streaming = true
     error = ''
-    void api.prompt(active.name, text).match(
+    void api.prompt(active.name, message).match(
       () => startStream(),
       e => {
         error = e
         streaming = false
       },
     )
+  }
+
+  async function pickFiles() {
+    if (attachInput === null) return
+    attachInput.click()
+  }
+
+  async function onFiles(e: Event) {
+    const target = e.target as HTMLInputElement
+    const files = Array.from(target.files ?? [])
+    target.value = ''
+    if (files.length === 0) return
+    uploading = true
+    for (const f of files) {
+      try {
+        const up = await api.uploadFile(f, active.name)
+        pends = [...pends, { code: up.code, name: up.name, mime: up.mime, size: up.size }]
+      } catch (err) {
+        error = String(err)
+      }
+    }
+    uploading = false
   }
 
   function interrupt() {
@@ -239,6 +272,14 @@
   function scrollToBottom(el: HTMLElement) {
     el.scrollTop = el.scrollHeight
   }
+
+  function renderFileLinks(content: string) {
+    return content.replace(
+      FILE_REF,
+      (_m, name, code, mime, size) =>
+        `[📎 ${name || code} (${mime ?? ''})](${api.fileUrl(code)})`,
+    )
+  }
 </script>
 
 <div class="h-full flex flex-col">
@@ -308,9 +349,9 @@
           >
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             {#if m.role === 'assistant'}
-              {@html markdown(m.content)}
+              {@html markdown(renderFileLinks(m.content))}
             {:else}
-              {m.content}
+              <span class="whitespace-pre-wrap">{renderFileLinks(m.content)}</span>
             {/if}
           </div>
           <Button
@@ -351,7 +392,39 @@
     {#if error}
       <div class="text-destructive text-xs mb-2">{error}</div>
     {/if}
+
+    {#if pends.length > 0}
+      <div class="flex flex-wrap gap-1 mb-2">
+        {#each pends as a (a.code)}
+          <div class="flex items-center gap-1 text-xs rounded border border-border bg-muted/40 px-2 py-0.5">
+            <span class="truncate max-w-[120px]">{a.name || a.code}</span>
+            <button
+              class="text-muted-foreground hover:text-foreground"
+              aria-label="Remove attachment"
+              onclick={() => (pends = pends.filter(x => x.code !== a.code))}
+            >
+              ×
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if uploading}
+      <div class="text-xs text-muted-foreground mb-2">Uploading…</div>
+    {/if}
+
     <div class="flex gap-2 items-end">
+      <Button
+        variant="ghost"
+        size="icon"
+        class="h-9"
+        disabled={streaming || uploading}
+        title="Attach file"
+        onclick={pickFiles}
+      >
+        <PenLine class="size-4" />
+      </Button>
       <Textarea
         rows={2}
         class="flex-1 resize-none"
@@ -372,7 +445,7 @@
       {:else}
         <Button
           size="icon"
-          disabled={input.trim() === ''}
+          disabled={input.trim() === '' && pends.length === 0}
           onclick={() => send()}
           title="Send"
         >
@@ -380,6 +453,14 @@
         </Button>
       {/if}
     </div>
+
+    <input
+      bind:this={attachInput}
+      type="file"
+      multiple
+      class="hidden"
+      onchange={onFiles}
+    />
 
     <div class="flex items-center gap-2 mt-2 text-xs">
       <div class="relative">

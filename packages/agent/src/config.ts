@@ -20,6 +20,10 @@ export interface ServerConfig {
   defaultMaxTokens: number
   /** Model context window (estimated tokens). Compaction budgets are fractions of it. */
   compactionContextTokens: number
+  /** File storage backend: "nats" (JetStream object store). */
+  filesStorage: string
+  /** VLM model ref for image_read ("provider_id/model_id"). */
+  imageReadModel: string
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -54,5 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       or('ZERGX_COMPACTION_CONTEXT_TOKENS', '200000'),
       10,
     ),
+    filesStorage: or('FILE_STORAGE', 'nats'),
+    imageReadModel: or('IMAGE_READ_MODEL', ''),
   }
 }

@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
 import { configRoutes } from './config.js'
+import { fileRoutes } from './files.js'
+import { llmRoutes } from './llm.js'
 import { providerRoutes } from './providers.js'
 import { sessionRoutes } from './sessions.js'
 
@@ -33,6 +35,8 @@ export function buildRoutes() {
     .route('/', sessionRoutes)
     .route('/', providerRoutes)
     .route('/', configRoutes)
+    .route('/', llmRoutes)
+    .route('/', fileRoutes)
 
   return routed
 }

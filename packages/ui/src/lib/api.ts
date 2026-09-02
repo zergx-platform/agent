@@ -115,6 +115,30 @@ export const api = {
       'prompt',
     ),
 
+  // ---- file upload / download (agent-native) ----
+
+  uploadFile: async (file: File, uploaderSession: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (uploaderSession !== '') fd.append('uploader_session', uploaderSession)
+    const res = await fetch(`${origin}/api/v1/files`, {
+      method: 'POST',
+      body: fd,
+    })
+    if (!res.ok) {
+      throw new Error(`upload failed (HTTP ${res.status})`)
+    }
+    return (await res.json()) as {
+      code: string
+      name: string
+      mime: string
+      size: number
+      sha256: string
+    }
+  },
+
+  fileUrl: (code: string) => `${origin}/api/v1/files/${code}`,
+
   interrupt: (sid: string) =>
     request(
       () => client.sessions[':id'].interrupt.$post({ param: { id: sid } }),

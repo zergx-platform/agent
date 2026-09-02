@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS providers (
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS files (
+    code TEXT PRIMARY KEY,
+    sha256 TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    mime TEXT NOT NULL DEFAULT '',
+    size BIGINT NOT NULL DEFAULT 0,
+    uploader_session TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (NOW()::text)
+);
+CREATE INDEX IF NOT EXISTS idx_files_sha ON files (sha256);
 `
 
 export function nowStr(): string {
