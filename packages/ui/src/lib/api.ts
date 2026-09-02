@@ -207,7 +207,7 @@ export const api = {
       'set model',
     ),
 
-  updateSettings: (sid: string, patch: { model?: string; preset?: string }) =>
+  updateSettings: (sid: string, patch: { model?: string; preset?: string; locale?: string }) =>
     request(
       () =>
         client.sessions[':id'].settings.$patch({

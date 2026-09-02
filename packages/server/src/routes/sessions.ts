@@ -716,6 +716,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
       preset: b.preset,
       maxTurns: b.max_turns,
       systemPrompt: b.system_prompt,
+      locale: b.locale,
     })
     if (r.isErr()) return err500(c, r.error)
     const s = await Sessions.get(db, sid)

@@ -44,6 +44,7 @@ export const SessionRowSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   last_used_at: z.string().nullable(),
+  locale: z.string().optional(),
 })
 export type SessionRow = z.infer<typeof SessionRowSchema>
 
@@ -80,6 +81,7 @@ export type MailboxRow = z.infer<typeof MailboxRowSchema>
 export const PresetRowSchema = z.object({
   id: z.string(),
   system_prompt: z.string(),
+  system_prompt_i18n: z.string().optional(),
   tools: z.string(),
   max_turns: z.number().int(),
 })
@@ -129,12 +131,14 @@ export const SessionSettingsBodySchema = z.object({
   preset: z.string().optional(),
   max_turns: z.number().int().optional(),
   system_prompt: z.string().optional(),
+  locale: z.string().optional(),
 })
 export type SessionSettingsBody = z.infer<typeof SessionSettingsBodySchema>
 
 export const PresetBodySchema = z.object({
   id: z.string().min(1),
   system_prompt: z.string().optional(),
+  system_prompt_i18n: z.any().optional(),
   tools: z.unknown().optional(),
   max_turns: z.number().int().optional(),
 })
@@ -256,6 +260,7 @@ export type CatalogProviders = z.infer<typeof CatalogProvidersSchema>
 export const ExtensionToolSchema = z.object({
   name: z.string(),
   description: z.string(),
+  descriptions: z.record(z.string(), z.string()).optional(),
   input_schema: z.record(z.string(), z.unknown()).optional(),
 })
 export type ExtensionTool = z.infer<typeof ExtensionToolSchema>

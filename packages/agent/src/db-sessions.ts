@@ -22,6 +22,7 @@ const toRow = (r: Row): SessionRow => ({
   created_at: r.createdAt,
   updated_at: r.updatedAt,
   last_used_at: r.lastUsedAt,
+  locale: r.locale,
 })
 
 export interface SessionPatch {
@@ -31,6 +32,7 @@ export interface SessionPatch {
   preset?: string | undefined
   maxTurns?: number | undefined
   systemPrompt?: string | undefined
+  locale?: string | undefined
 }
 
 export const Sessions = {
@@ -195,5 +197,6 @@ function patchToDrizzle(
   if (patch.preset !== undefined) set.preset = patch.preset
   if (patch.maxTurns !== undefined) set.maxTurns = patch.maxTurns
   if (patch.systemPrompt !== undefined) set.systemPrompt = patch.systemPrompt
+  if (patch.locale !== undefined) set.locale = patch.locale
   return set
 }

@@ -17,6 +17,7 @@ export const Presets = {
             rows.map(r => ({
               id: r.id,
               system_prompt: r.systemPrompt,
+              system_prompt_i18n: r.systemPromptI18n,
               tools: r.tools,
               max_turns: r.maxTurns,
             })),
@@ -40,6 +41,7 @@ export const Presets = {
               : {
                   id: r.id,
                   system_prompt: r.systemPrompt,
+                  system_prompt_i18n: r.systemPromptI18n,
                   tools: r.tools,
                   max_turns: r.maxTurns,
                 }
@@ -50,7 +52,13 @@ export const Presets = {
 
   upsert(
     db: Db,
-    row: { id: string; systemPrompt: string; tools: string; maxTurns: number },
+    row: {
+      id: string
+      systemPrompt: string
+      systemPromptI18n: string
+      tools: string
+      maxTurns: number
+    },
   ): ResultAsync<void, string> {
     return q(
       () =>
@@ -59,6 +67,7 @@ export const Presets = {
           .values({
             id: row.id,
             systemPrompt: row.systemPrompt,
+            systemPromptI18n: row.systemPromptI18n,
             tools: row.tools,
             maxTurns: row.maxTurns,
           })
@@ -66,6 +75,7 @@ export const Presets = {
             target: presets.id,
             set: {
               systemPrompt: row.systemPrompt,
+              systemPromptI18n: row.systemPromptI18n,
               tools: row.tools,
               maxTurns: row.maxTurns,
             },

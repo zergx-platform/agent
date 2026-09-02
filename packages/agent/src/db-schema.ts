@@ -30,6 +30,7 @@ export const sessions = pgTable('sessions', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   lastUsedAt: text('last_used_at'),
+  locale: text('locale').notNull().default(''),
 })
 
 export const messages = pgTable('messages', {
@@ -68,6 +69,7 @@ export const mailbox = pgTable('mailbox', {
 export const presets = pgTable('presets', {
   id: text('id').primaryKey(),
   systemPrompt: text('system_prompt').notNull().default(''),
+  systemPromptI18n: text('system_prompt_i18n').notNull().default('{}'),
   tools: text('tools').notNull().default('[]'),
   maxTurns: integer('max_turns').notNull().default(30),
 })

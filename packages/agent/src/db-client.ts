@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TEXT NOT NULL DEFAULT (NOW()::text),
     last_used_at TEXT
 );
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS locale TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
@@ -79,9 +80,11 @@ CREATE INDEX IF NOT EXISTS idx_mb_sess ON mailbox (session_name);
 CREATE TABLE IF NOT EXISTS presets (
     id TEXT PRIMARY KEY,
     system_prompt TEXT NOT NULL DEFAULT '',
+    system_prompt_i18n TEXT NOT NULL DEFAULT '{}',
     tools TEXT NOT NULL DEFAULT '[]',
     max_turns INTEGER NOT NULL DEFAULT 30
 );
+ALTER TABLE presets ADD COLUMN IF NOT EXISTS system_prompt_i18n TEXT NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,

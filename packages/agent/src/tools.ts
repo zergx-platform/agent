@@ -7,11 +7,13 @@ import { jsonSchema, type Tool } from 'ai'
 import { z } from 'zod'
 import type { Bus } from './bus.js'
 import { EXTENSION_DISCOVER_SUBJECT } from './extensions.js'
+import { pickDescription } from './i18n.js'
 import { parse, type ToolResult } from './json.js'
 
 export const ToolManifestSchema = z.object({
   name: z.string(),
   description: z.string(),
+  descriptions: z.record(z.string(), z.string()).optional(),
   input_schema: z.record(z.string(), z.unknown()).optional(),
 })
 
@@ -20,6 +22,8 @@ export interface DiscoveredTool {
   extId: string
   name: string
   description: string
+  /** Localized descriptions (locale → text); `description` is the fallback. */
+  descriptions?: Record<string, string>
   /** JSON Schema object describing the tool's arguments. */
   inputSchema: Record<string, unknown>
 }
@@ -120,6 +124,7 @@ function toolToDiscovered(extId: string, t: ExtensionTool): DiscoveredTool {
     extId,
     name: t.name,
     description: t.description,
+    ...(t.descriptions !== undefined ? { descriptions: t.descriptions } : {}),
     inputSchema: t.input_schema ?? { type: 'object', properties: {} },
   }
 }
@@ -136,6 +141,7 @@ export function buildAiTools(
   timeoutMs: number,
   sessionId?: string,
   abortSignal?: AbortSignal,
+  locale?: string,
 ): Record<string, Tool<Record<string, unknown>, ToolResult>> {
   const tools: Record<string, Tool<Record<string, unknown>, ToolResult>> = {}
   for (const t of discovered) {
@@ -144,8 +150,11 @@ export function buildAiTools(
     // AI-tool key by extension id while keeping the wire tool name intact.
     const aiName = toolQualifiedName(discovered, t)
     if (tools[aiName] !== undefined) continue
+    const description = locale
+      ? pickDescription(t.description, t.descriptions, locale)
+      : t.description
     tools[aiName] = {
-      description: t.description,
+      description,
       inputSchema: jsonSchema(t.inputSchema),
       execute: async (args, { toolCallId }) => {
         return await raceFinal(

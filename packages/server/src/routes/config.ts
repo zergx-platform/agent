@@ -297,6 +297,7 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
       r.value.map(p => ({
         id: p.id,
         system_prompt: p.system_prompt,
+        system_prompt_i18n: p.system_prompt_i18n ?? '{}',
         tools: parse(z.array(z.string()), p.tools).unwrapOr([]),
         max_turns: p.max_turns,
       })),
@@ -309,6 +310,10 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     const r = await Presets.upsert(db, {
       id: b.id,
       systemPrompt: b.system_prompt ?? '',
+      systemPromptI18n:
+        typeof b.system_prompt_i18n === 'string'
+          ? b.system_prompt_i18n
+          : JSON.stringify(b.system_prompt_i18n ?? {}),
       tools: JSON.stringify(b.tools ?? []),
       maxTurns: b.max_turns ?? 0,
     })
@@ -331,7 +336,11 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     if (r.value === null) {
       return c.json({ ok: false, error: 'preset not found' }, 404)
     }
-    const template = r.value.system_prompt
+    const template =
+      r.value.system_prompt_i18n !== undefined &&
+      r.value.system_prompt_i18n !== '{}'
+        ? r.value.system_prompt_i18n
+        : r.value.system_prompt
     const rendered = await renderTemplate(template, bus)
     return c.json({ template, rendered }, 200)
   })

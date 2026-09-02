@@ -4,8 +4,9 @@ import {
   claimSession,
   releaseSession,
   renewSession,
+  setSessionVariable,
 } from '@abc-protocol/sdk'
-import type { PartRow } from '@zergx-agent/schema'
+import type { PartRow, PresetRow } from '@zergx-agent/schema'
 import type { ModelMessage, Tool } from 'ai'
 import { streamText } from 'ai'
 import { err, ok, type Result } from 'neverthrow'
@@ -33,6 +34,7 @@ import { events, pushEvent } from './events.js'
 import { renderTemplate } from './extensions.js'
 import type { BlobStore } from './files.js'
 import { rebuildHistory } from './history.js'
+import { pickLocalized, resolveLocale } from './i18n.js'
 import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
   ContentPayloadSchema,
@@ -526,6 +528,10 @@ async function prepare(
   const toolNames = presetTools.isOk() ? presetTools.value : []
   const whitelist = toolNames.length > 0 ? new Set(toolNames) : null
 
+  // Effective locale: session → config → env → "en". Used to localize tool
+  // descriptions and the system prompt, and projected as vars.agent.locale.
+  const locale = resolveLocale(session.locale, null, deps.config.locale)
+
   const discovered = await discoverToolsCached(deps.bus)
   const active =
     whitelist === null
@@ -545,6 +551,7 @@ async function prepare(
     deps.config.toolTimeoutMs,
     sid,
     abortSignal,
+    locale,
   )
 
   // Session-level settings (PATCH /sessions/{id}/settings) override the
@@ -552,8 +559,8 @@ async function prepare(
   const systemPrompt =
     session.system_prompt !== ''
       ? session.system_prompt
-      : presetRow !== null && presetRow.system_prompt !== ''
-        ? presetRow.system_prompt
+      : presetRow !== null
+        ? presetPromptFor(presetRow, locale)
         : 'You are a helpful assistant.'
   const env = [
     '<env>',
@@ -581,12 +588,37 @@ async function prepare(
   const resolved = await deps.llm.resolve(deps.db, session.model)
   if (resolved.isErr()) return resolved.error
 
+  // Project the effective locale as a session variable so extensions can
+  // localize their tool-result text. Written by the agent (provider "agent")
+  // into the shared vars bucket during each turn.
+  void setSessionVariable(deps.bus, 'agent', sid, 'locale', locale)
+
   return {
     tools,
     system: `${renderedPrompt}\n\n${env}`,
     maxTurns,
     model: resolved.value.model,
   }
+}
+
+/** Fall back to a helper 'You are a helpful assistant.' marker. */
+const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
+
+/** Resolve the preset's system prompt honoring the effective locale. */
+function presetPromptFor(preset: PresetRow, locale: string): string {
+  // Parse `system_prompt_i18n` as { locale: template }; fall back to the
+  // default `system_prompt` (English) when absent or unmatched.
+  if (preset.system_prompt_i18n && preset.system_prompt_i18n !== '{}') {
+    const map = parse(
+      z.record(z.string(), z.string()),
+      preset.system_prompt_i18n,
+    )
+    if (map.isOk()) {
+      const picked = pickLocalized(map.value, locale)
+      if (picked !== null) return picked
+    }
+  }
+  return preset.system_prompt || DEFAULT_SYSTEM_PROMPT
 }
 
 interface ToolCallRec {
