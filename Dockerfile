@@ -7,7 +7,7 @@ ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ENV HTTP_PROXY=${HTTP_PROXY} \
     HTTPS_PROXY=${HTTPS_PROXY} \
-    NO_PROXY=localhost,127.0.0.1,.svc.cluster.local,.svc,.nip.io
+    NO_PROXY=localhost,127.0.0.1,.svc.cluster.local,.svc
 WORKDIR /build
 COPY package.json package-lock.json tsconfig.base.json .npmrc ./
 COPY scripts scripts
