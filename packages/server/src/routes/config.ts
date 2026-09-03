@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
+import { Agent as AbcAgent } from '@abc-protocol/sdk'
 import {
   Config,
   discoverTools,
@@ -221,6 +222,43 @@ const putToolConfigRoute = createRoute({
   },
 })
 
+// Set an extension config knob by id (e.g. memory / vlm_model). Delivers the
+// validated change to the extension's config store (abc.config.<extId> + cfg
+// KV) so tools like image_read pick the model up immediately.
+const setExtensionConfigRoute = createRoute({
+  method: 'put',
+  path: '/tool-config/{extId}/{name}',
+  summary: 'Set an extension config value',
+  request: {
+    params: z.object({ extId: z.string(), name: z.string() }),
+    body: {
+      content: {
+        'application/json': { schema: z.object({ value: z.unknown() }) },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Ok',
+      content: {
+        'application/json': { schema: z.object({ ok: z.boolean() }) },
+      },
+    },
+    400: {
+      description: 'Bad request',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    404: {
+      description: 'No manifest',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+    500: {
+      description: 'Error',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
+  },
+})
+
 // ---- tools ----
 
 const listToolsRoute = createRoute({
@@ -395,6 +433,29 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
       : c.json({ ok: true, config: body.value }, 200)
+  })
+  .openapi(setExtensionConfigRoute, async c => {
+    const deps = c.get('deps')
+    const { extId, name } = c.req.valid('param')
+    const body = c.req.valid('json')
+    const agent = new AbcAgent(deps.bus)
+    try {
+      // Discover keeps the manifest cache warm; SetConfig validates against
+      // the extension's declared config knobs and persists cfg KV + delivers
+      // to the live extension. fail if the extension is unknown.
+      await agent.discover(500)
+      await agent.setConfig(extId, name, body.value)
+      return c.json({ ok: true }, 200)
+    } catch (e) {
+      const code = (e as { code?: string })?.code
+      if (code === 'not_found') {
+        return c.json({ ok: false, error: 'no manifest for ' + extId }, 404)
+      }
+      if (code === 'invalid_argument') {
+        return c.json({ ok: false, error: (e as Error).message }, 400)
+      }
+      return c.json({ ok: false, error: (e as Error).message }, 500)
+    }
   })
   .openapi(listToolsRoute, async c => {
     const deps = c.get('deps')
