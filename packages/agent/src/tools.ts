@@ -1,5 +1,6 @@
 import { Agent as AbcAgent } from '@abc-protocol/sdk'
 import {
+  type ExtensionConfigItem,
   ExtensionManifestSchema,
   type ExtensionTool,
 } from '@zergx-agent/schema'
@@ -26,6 +27,15 @@ export interface DiscoveredTool {
   descriptions?: Record<string, string>
   /** JSON Schema object describing the tool's arguments. */
   inputSchema: Record<string, unknown>
+  /** Declared config knobs of the owning extension (extension-level). */
+  extConfig?: {
+    name: string
+    type: string
+    enum_values?: string[]
+    default?: unknown
+    description?: string
+    scope?: string
+  }[]
 }
 
 /**
@@ -60,8 +70,9 @@ export async function discoverTools(
     if (parsed.isErr()) continue
     const m = parsed.value
     if (!m.capabilities.includes('tools')) continue
+    const config = m.config as unknown as ExtensionConfigItem[]
     for (const t of m.tools ?? []) {
-      out.push(toolToDiscovered(m.id, t))
+      out.push(withExtConfig(toolToDiscovered(m.id, t), config))
     }
   }
   return out
@@ -126,6 +137,31 @@ function toolToDiscovered(extId: string, t: ExtensionTool): DiscoveredTool {
     description: t.description,
     ...(t.descriptions !== undefined ? { descriptions: t.descriptions } : {}),
     inputSchema: t.input_schema ?? { type: 'object', properties: {} },
+  }
+}
+
+/**
+ * Attach the owning extension's declared config knobs to every tool it
+ * exports, so the UI can render the right editor (model picker, enum, …).
+ * Config is extension-level, but the agent surfaces it per tool for the
+ * configured-tool surface.
+ */
+function withExtConfig(
+  t: DiscoveredTool,
+  config?: ExtensionConfigItem[],
+): DiscoveredTool {
+  if (!config || config.length === 0) return t
+  const extConfig = config.map(c => ({
+    name: c.name,
+    type: c.type,
+    enum_values: c.enum_values ?? [],
+    default: c.default,
+    description: c.description,
+    scope: c.scope,
+  }))
+  return {
+    ...t,
+    extConfig: extConfig as NonNullable<DiscoveredTool['extConfig']>,
   }
 }
 

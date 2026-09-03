@@ -293,6 +293,17 @@ export const ExtensionVariableSchema = z.object({
 })
 export type ExtensionVariable = z.infer<typeof ExtensionVariableSchema>
 
+/** A declared extension config knob (mirrors @abc-protocol ExtensionConfigItem). */
+export const ExtensionConfigItemSchema = z.object({
+  name: z.string(),
+  type: z.enum(['string', 'number', 'boolean', 'enum', 'json']),
+  enum_values: z.array(z.string()).optional(),
+  default: z.unknown().optional(),
+  description: z.string().optional(),
+  scope: z.enum(['global', 'session']).default('global'),
+})
+export type ExtensionConfigItem = z.infer<typeof ExtensionConfigItemSchema>
+
 /** The manifest an extension serves at GET /api/v1/extension. */
 export const ExtensionManifestSchema = z.object({
   id: z.string(),
@@ -304,6 +315,7 @@ export const ExtensionManifestSchema = z.object({
       variables: z.array(ExtensionVariableSchema).optional(),
     })
     .optional(),
+  config: z.array(ExtensionConfigItemSchema).optional(),
 })
 export type ExtensionManifest = z.infer<typeof ExtensionManifestSchema>
 

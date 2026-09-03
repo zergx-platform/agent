@@ -1,5 +1,5 @@
-import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import { Agent as AbcAgent } from '@abc-protocol/sdk'
+import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   Config,
   discoverTools,
@@ -480,6 +480,7 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
           category: t.extId,
           parameters: localizeSchema(t.inputSchema ?? null, locale),
           configFields: null,
+          config: t.extConfig ?? null,
         })),
       },
       200,
