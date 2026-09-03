@@ -9,7 +9,7 @@
 
   let { onclose }: { onclose: () => void } = $props()
 
-  let presets: { id: string; system_prompt: string; tools: string; max_turns: number }[] =
+  let presets: { id: string; system_prompt: string; tools: string; max_turns: number; is_system?: boolean }[] =
     $state([])
   let error = $state('')
 
@@ -97,6 +97,9 @@
             <div class="text-sm font-medium">{p.id}</div>
             <div class="text-xs text-muted-foreground truncate">{p.system_prompt.slice(0, 80)}</div>
             <div class="text-xs text-muted-foreground">max_turns: {p.max_turns}</div>
+            {#if p.is_system}
+              <div class="text-[9px] px-1 py-0.5 rounded bg-secondary text-secondary-foreground border border-border inline-block">system</div>
+            {/if}
           </div>
           <Button
             variant="ghost"
@@ -107,15 +110,17 @@
           >
             <Plus class="size-3.5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Delete"
-            title="Delete"
-            onclick={() => remove(p.id)}
-          >
-            <Trash2 class="text-destructive size-4" />
-          </Button>
+          {#if !p.is_system}
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Delete"
+              title="Delete"
+              onclick={() => remove(p.id)}
+            >
+              <Trash2 class="text-destructive size-4" />
+            </Button>
+          {/if}
         </div>
       {/each}
 

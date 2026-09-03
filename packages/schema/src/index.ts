@@ -98,6 +98,8 @@ export const PresetRowSchema = z.object({
   system_prompt_i18n: z.string().optional(),
   tools: z.string(),
   max_turns: z.number().int(),
+  /** True when this is an immutable system preset (cannot be edited/deleted). */
+  is_system: z.boolean().optional(),
 })
 export type PresetRow = z.infer<typeof PresetRowSchema>
 

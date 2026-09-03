@@ -64,6 +64,10 @@ const upsertPresetRoute = createRoute({
         'application/json': { schema: z.object({ ok: z.boolean() }) },
       },
     },
+    409: {
+      description: 'System preset is read-only',
+      content: { 'application/json': { schema: ErrorSchema } },
+    },
     500: {
       description: 'Error',
       content: { 'application/json': { schema: ErrorSchema } },
@@ -82,6 +86,10 @@ const deletePresetRoute = createRoute({
       content: {
         'application/json': { schema: z.object({ ok: z.boolean() }) },
       },
+    },
+    409: {
+      description: 'System preset is read-only',
+      content: { 'application/json': { schema: ErrorSchema } },
     },
     500: {
       description: 'Error',
@@ -344,6 +352,7 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
         system_prompt_i18n: p.system_prompt_i18n ?? '{}',
         tools: parse(z.array(z.string()), p.tools).unwrapOr([]),
         max_turns: p.max_turns,
+        is_system: p.is_system ?? false,
       })),
       200,
     )
@@ -361,16 +370,29 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
       tools: JSON.stringify(b.tools ?? []),
       maxTurns: b.max_turns ?? 0,
     })
-    return r.isErr()
-      ? c.json({ ok: false, error: r.error }, 500)
-      : c.json({ ok: true }, 200)
+    if (r.isErr()) {
+      // The only expected rejection is a read-only system preset.
+      const msg = String(r.error)
+      const isSystem = msg.includes('is immutable')
+      return c.json(
+        { ok: false, error: isSystem ? 'system preset is read-only' : msg },
+        isSystem ? 409 : 500,
+      )
+    }
+    return c.json({ ok: true }, 200)
   })
   .openapi(deletePresetRoute, async c => {
     const { bus } = c.get('deps')
     const r = await Presets.delete(bus, c.req.valid('param').id)
-    return r.isErr()
-      ? c.json({ ok: false, error: r.error }, 500)
-      : c.json({ ok: true }, 200)
+    if (r.isErr()) {
+      const msg = String(r.error)
+      const isSystem = msg.includes('is immutable')
+      return c.json(
+        { ok: false, error: isSystem ? 'system preset is read-only' : msg },
+        isSystem ? 409 : 500,
+      )
+    }
+    return c.json({ ok: true }, 200)
   })
   .openapi(previewPresetRoute, async c => {
     const { bus } = c.get('deps')

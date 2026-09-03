@@ -12,6 +12,7 @@ import {
   logger,
   Mailbox,
   makeBlobStore,
+  Presets,
   refreshModelsDev,
   runSessionTurn,
   watchMailboxWake,
@@ -133,6 +134,10 @@ async function main(): Promise<void> {
   // One-time PG → KV migration for presets / config / files-meta (marker-
   // guarded per domain; a failure retries on the next boot).
   void backfillKvFromPg(db, bus)
+
+  // Seed the immutable system presets (create-if-absent). Idempotent across
+  // replicas and restarts; never overwrites what a restore/user already set.
+  void Presets.seedDefaults(bus)
 
   // Mailbox retention: consumed rows are audit-only, prune past the window.
   const retentionDays = Number.parseInt(

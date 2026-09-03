@@ -227,6 +227,7 @@ export const api = {
           system_prompt: z.string(),
           tools: z.string(),
           max_turns: z.number(),
+          is_system: z.boolean().optional(),
         }),
       ),
       'list presets',

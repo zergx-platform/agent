@@ -1,7 +1,8 @@
 import type { PresetRow } from '@zergx-agent/schema'
-import { ResultAsync } from 'neverthrow'
+import { errAsync, ResultAsync } from 'neverthrow'
 import type { Bus } from './bus.js'
 import { BUCKET_CONFIG, BUCKET_PRESETS } from './bus.js'
+import { isSystemPreset, SYSTEM_PRESETS } from './default-presets.js'
 
 /** No-expiry TTL for durable KV entries. */
 const NO_TTL = 0
@@ -20,6 +21,8 @@ interface PresetRowInternal {
   tools: string
   maxTurns: number
 }
+
+export type { PresetRowInternal }
 
 function rowToJson(row: PresetRowInternal): string {
   return JSON.stringify({
@@ -55,6 +58,7 @@ function toRow(r: PresetRowInternal): PresetRow {
     system_prompt_i18n: r.systemPromptI18n,
     tools: r.tools,
     max_turns: r.maxTurns,
+    is_system: isSystemPreset(r.id),
   }
 }
 
@@ -124,6 +128,9 @@ export const Presets = {
   },
 
   upsert(bus: Bus, row: PresetRowInternal): ResultAsync<void, string> {
+    if (isSystemPreset(row.id)) {
+      return errAsync(`system preset '${row.id}' is immutable`)
+    }
     return ra(
       (async () => {
         await bus.kvPut(BUCKET_PRESETS, row.id, rowToJson(row), NO_TTL)
@@ -134,12 +141,40 @@ export const Presets = {
   },
 
   delete(bus: Bus, id: string): ResultAsync<void, string> {
+    if (isSystemPreset(id)) {
+      return errAsync(`system preset '${id}' is immutable`)
+    }
     return ra(
       (async () => {
         await bus.kvDelete(BUCKET_PRESETS, id)
         await removeFromPresetIndex(bus, id)
       })(),
       'delete preset',
+    )
+  },
+
+  /**
+   * Seed the immutable system presets at boot, create-if-absent. Every
+   * replica / restart calls this; `kvCreate` is atomic, so an existing key
+   * (seeded earlier, or a restore) is never overwritten — user state and
+   * edits to user presets are preserved. Idle on a fully-seeded bucket.
+   */
+  seedDefaults(bus: Bus): ResultAsync<void, string> {
+    return ra(
+      (async () => {
+        for (const d of SYSTEM_PRESETS) {
+          const created = await bus.kvCreate(
+            BUCKET_PRESETS,
+            d.id,
+            rowToJson(d),
+            NO_TTL,
+          )
+          if (created !== null) {
+            await addToPresetIndex(bus, d.id)
+          }
+        }
+      })(),
+      'seed default presets',
     )
   },
 }
