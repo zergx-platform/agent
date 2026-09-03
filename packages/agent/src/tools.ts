@@ -7,7 +7,7 @@ import { jsonSchema, type Tool } from 'ai'
 import { z } from 'zod'
 import type { Bus } from './bus.js'
 import { EXTENSION_DISCOVER_SUBJECT } from './extensions.js'
-import { pickDescription } from './i18n.js'
+import { localizeSchema, pickDescription } from './i18n.js'
 import { parse, type ToolResult } from './json.js'
 
 export const ToolManifestSchema = z.object({
@@ -153,9 +153,14 @@ export function buildAiTools(
     const description = locale
       ? pickDescription(t.description, t.descriptions, locale)
       : t.description
+    // Property-level i18n uses the same `descriptions` convention inside the
+    // schema; resolve it for the locale and strip the non-standard keys.
+    const inputSchema = locale
+      ? localizeSchema(t.inputSchema, locale)
+      : t.inputSchema
     tools[aiName] = {
       description,
-      inputSchema: jsonSchema(t.inputSchema),
+      inputSchema: jsonSchema(inputSchema),
       execute: async (args, { toolCallId }) => {
         return await raceFinal(
           new AbcAgent(bus)

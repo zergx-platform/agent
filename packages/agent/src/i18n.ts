@@ -49,6 +49,51 @@ export function pickDescription(
   return pickLocalized(descriptions, locale) ?? description
 }
 
+/**
+ * Resolve a JSON-schema node's `descriptions` map the same way: exact →
+ * primary-language fallback → null.
+ */
+function pickNodeDescription(
+  node: Record<string, unknown>,
+  locale: string,
+): string | null {
+  const d = node.descriptions
+  if (d == null || typeof d !== 'object' || Array.isArray(d)) return null
+  const map: Record<string, string> = {}
+  for (const [k, v] of Object.entries(d)) {
+    if (typeof v === 'string') map[k] = v
+  }
+  return pickLocalized(map, locale)
+}
+
+/**
+ * Localize a tool's input schema in place-safe fashion: every node carrying
+ * a `descriptions: Record<locale, string>` map (the same convention as
+ * tool-level descriptions) gets its `description` resolved for the locale
+ * and the `descriptions` key stripped, so the model only ever sees standard
+ * JSON-Schema keys. Nodes without the map pass through untouched; a missing
+ * locale entry falls back to the existing `description`.
+ */
+export function localizeSchema<T>(schema: T, locale: string): T {
+  const walk = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(walk)
+    }
+    if (value === null || typeof value !== 'object') {
+      return value
+    }
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (k === 'descriptions') continue
+      out[k] = walk(v)
+    }
+    const picked = pickNodeDescription(value as Record<string, unknown>, locale)
+    if (picked !== null) out.description = picked
+    return out
+  }
+  return walk(schema) as T
+}
+
 /** Resolve a locale from the effective preference chain. */
 export function resolveLocale(
   sessionLocale: string | undefined | null,

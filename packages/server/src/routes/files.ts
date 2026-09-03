@@ -44,7 +44,7 @@ async function storeBytes(
 ): Promise<FileRecord> {
   const sha = sha256Hex(data)
   // Content dedup: reuse the existing code for identical bytes.
-  const existing = await fileBySha(deps.db, sha)
+  const existing = await fileBySha(deps.bus, sha)
   if (existing.isOk() && existing.value !== null) {
     return existing.value
   }
@@ -59,7 +59,7 @@ async function storeBytes(
     created_at: new Date().toISOString(),
   }
   await deps.files.put(code, record, data)
-  await upsertFile(deps.db, record)
+  await upsertFile(deps.bus, record)
   return record
 }
 
@@ -181,7 +181,7 @@ export const fileRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getFileRoute, async c => {
     const deps = c.get('deps')
     const code = c.req.param('code')
-    const row = await fileByCode(deps.db, code)
+    const row = await fileByCode(deps.bus, code)
     if (row.isErr()) return c.json({ ok: false, error: row.error }, 500)
     if (row.value === null)
       return c.json({ ok: false, error: 'file not found' }, 404)
@@ -203,7 +203,7 @@ export const fileRoutes = new OpenAPIHono<AppEnv>()
   .openapi(getFileMetaRoute, async c => {
     const deps = c.get('deps')
     const code = c.req.param('code')
-    const row = await fileByCode(deps.db, code)
+    const row = await fileByCode(deps.bus, code)
     if (row.isErr()) return c.json({ ok: false, error: row.error }, 500)
     if (row.value === null)
       return c.json({ ok: false, error: 'file not found' }, 404)

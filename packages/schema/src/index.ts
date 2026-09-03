@@ -78,6 +78,20 @@ export const MailboxRowSchema = z.object({
 })
 export type MailboxRow = z.infer<typeof MailboxRowSchema>
 
+export const WorksheetRowSchema = z.object({
+  id: z.string(),
+  session_name: z.string(),
+  ext_id: z.string(),
+  action: z.string(),
+  args: z.string(),
+  title: z.string(),
+  origin_call_id: z.string().nullable(),
+  status: z.string(),
+  created_at: z.string(),
+  decided_at: z.string().nullable(),
+})
+export type WorksheetRow = z.infer<typeof WorksheetRowSchema>
+
 export const PresetRowSchema = z.object({
   id: z.string(),
   system_prompt: z.string(),
@@ -112,6 +126,13 @@ export type PromptBody = z.infer<typeof PromptBodySchema>
 
 export const ForkBodySchema = z.object({
   name: z.string().min(1),
+  /**
+   * Optional fork point: a message id on the parent's chain. Absent forks
+   * from the parent's current tip (legacy behavior); present forks from that
+   * exact message, letting callers pin the fork to the moment they captured
+   * the id. Validated with a chain-membership walk (see the undo route).
+   */
+  message_id: z.string().optional(),
 })
 export type ForkBody = z.infer<typeof ForkBodySchema>
 

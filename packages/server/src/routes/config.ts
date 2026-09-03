@@ -290,8 +290,8 @@ const zergxConfigRoute = createRoute({
 
 export const configRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listPresetsRoute, async c => {
-    const { db } = c.get('deps')
-    const r = await Presets.list(db)
+    const { bus } = c.get('deps')
+    const r = await Presets.list(bus)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     return c.json(
       r.value.map(p => ({
@@ -305,9 +305,9 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     )
   })
   .openapi(upsertPresetRoute, async c => {
-    const { db } = c.get('deps')
+    const { bus } = c.get('deps')
     const b = c.req.valid('json')
-    const r = await Presets.upsert(db, {
+    const r = await Presets.upsert(bus, {
       id: b.id,
       systemPrompt: b.system_prompt ?? '',
       systemPromptI18n:
@@ -322,16 +322,16 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
       : c.json({ ok: true }, 200)
   })
   .openapi(deletePresetRoute, async c => {
-    const { db } = c.get('deps')
-    const r = await Presets.delete(db, c.req.valid('param').id)
+    const { bus } = c.get('deps')
+    const r = await Presets.delete(bus, c.req.valid('param').id)
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
       : c.json({ ok: true }, 200)
   })
   .openapi(previewPresetRoute, async c => {
-    const { db, bus } = c.get('deps')
+    const { bus } = c.get('deps')
     const id = c.req.valid('param').id
-    const r = await Presets.get(db, id)
+    const r = await Presets.get(bus, id)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     if (r.value === null) {
       return c.json({ ok: false, error: 'preset not found' }, 404)
@@ -345,8 +345,8 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     return c.json({ template, rendered }, 200)
   })
   .openapi(getConfigRoute, async c => {
-    const { db } = c.get('deps')
-    const r = await Config.get(db, 'providers')
+    const { bus } = c.get('deps')
+    const r = await Config.get(bus, 'providers')
     // Providers live in their own table now; expose them for UI compatibility.
     const providers =
       r.isOk() && r.value !== null
@@ -355,37 +355,37 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
     return c.json({ providers }, 200)
   })
   .openapi(getConfigKeyRoute, async c => {
-    const { db } = c.get('deps')
+    const { bus } = c.get('deps')
     const { key } = c.req.valid('param')
-    const r = await Config.get(db, key)
+    const r = await Config.get(bus, key)
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     return r.value === null
       ? c.json({ ok: false, error: 'config not found' }, 404)
       : c.json({ key, value: r.value }, 200)
   })
   .openapi(putConfigRoute, async c => {
-    const { db } = c.get('deps')
+    const { bus } = c.get('deps')
     const b = c.req.valid('json')
-    const r = await Config.set(db, b.key, b.value)
+    const r = await Config.set(bus, b.key, b.value)
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
       : c.json({ ok: true }, 200)
   })
   .openapi(getToolConfigRoute, async c => {
-    const { db } = c.get('deps')
-    const r = await Config.get(db, 'tool_config')
+    const { bus } = c.get('deps')
+    const r = await Config.get(bus, 'tool_config')
     if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
     const value =
       r.value === null ? {} : parse(z.unknown(), r.value).unwrapOr({})
     return c.json(value, 200)
   })
   .openapi(putToolConfigRoute, async c => {
-    const { db } = c.get('deps')
     const body = await ResultAsync.fromPromise(c.req.json(), () => null)
     if (body.isErr() || body.value === null) {
       return c.json({ ok: false, error: 'invalid json body' }, 400)
     }
-    const r = await Config.set(db, 'tool_config', JSON.stringify(body.value))
+    const { bus } = c.get('deps')
+    const r = await Config.set(bus, 'tool_config', JSON.stringify(body.value))
     return r.isErr()
       ? c.json({ ok: false, error: r.error }, 500)
       : c.json({ ok: true, config: body.value }, 200)

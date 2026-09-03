@@ -169,4 +169,25 @@ export const Mailbox = {
       'has pending interrupt',
     )
   },
+
+  /**
+   * Retention sweep: consumed rows are audit-only history, so they are
+   * pruned after a retention window. `consumed_at` is `YYYY-MM-DD HH:MM:SS`
+   * (lexicographically comparable). Returns the deleted row count.
+   */
+  purgeConsumed(db: Db, retentionDays: number): ResultAsync<number, string> {
+    const cutoff = new Date(Date.now() - retentionDays * 86_400_000)
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ')
+    return q(
+      () =>
+        db
+          .execute(
+            dsql`DELETE FROM mailbox WHERE status = 'consumed' AND consumed_at < ${cutoff} RETURNING id`,
+          )
+          .then(res => (rowsOf(res) ?? []).length),
+      'purge consumed mailbox',
+    )
+  },
 }

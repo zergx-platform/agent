@@ -45,6 +45,9 @@ export const STREAM_MAILBOX = 'ABC_MAILBOX'
 // lease (claimSession kvs-create fails => the session is never processed).
 export const BUCKET_SESSION_STATE = 'abc-session-meta'
 export const BUCKET_TOOL = 'ABC_TOOL'
+export const BUCKET_CONFIG = 'abc-agent-config'
+export const BUCKET_PRESETS = 'abc-presets'
+export const BUCKET_FILES_META = 'abc-files-meta'
 export const SESSION_LEASE_MS = 30_000
 export const MODELS_DEV_KEY = 'models-dev-catalog.json'
 

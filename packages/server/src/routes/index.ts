@@ -6,6 +6,7 @@ import { fileRoutes } from './files.js'
 import { llmRoutes } from './llm.js'
 import { providerRoutes } from './providers.js'
 import { sessionRoutes } from './sessions.js'
+import { worksheetRoutes } from './worksheets.js'
 
 const healthRoute = createRoute({
   method: 'get',
@@ -37,6 +38,7 @@ export function buildRoutes() {
     .route('/', configRoutes)
     .route('/', llmRoutes)
     .route('/', fileRoutes)
+    .route('/', worksheetRoutes)
 
   return routed
 }

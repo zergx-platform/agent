@@ -66,17 +66,19 @@ export const mailbox = pgTable('mailbox', {
   seq: integer('seq'),
 })
 
-export const presets = pgTable('presets', {
+export const worksheets = pgTable('worksheets', {
   id: text('id').primaryKey(),
-  systemPrompt: text('system_prompt').notNull().default(''),
-  systemPromptI18n: text('system_prompt_i18n').notNull().default('{}'),
-  tools: text('tools').notNull().default('[]'),
-  maxTurns: integer('max_turns').notNull().default(30),
-})
-
-export const config = pgTable('config', {
-  key: text('key').primaryKey(),
-  value: text('value').notNull().default('{}'),
+  sessionName: text('session_name')
+    .notNull()
+    .references(() => sessions.name, { onDelete: 'cascade' }),
+  extId: text('ext_id').notNull(),
+  action: text('action').notNull(),
+  args: text('args').notNull().default('{}'),
+  title: text('title').notNull().default(''),
+  originCallId: text('origin_call_id'),
+  status: text('status').notNull().default('pending'),
+  createdAt: text('created_at').notNull(),
+  decidedAt: text('decided_at'),
 })
 
 export const providers = pgTable('providers', {

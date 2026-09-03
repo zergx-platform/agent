@@ -25,11 +25,11 @@ import type { ServerConfig } from './config.js'
 import { isContextOverflowFailure } from './context-overflow.js'
 import type { Db } from './db-client.js'
 import { nowStr } from './db-client.js'
-import { Presets } from './db-kv.js'
 import { Mailbox } from './db-mailbox.js'
 import { type ChainMessage, Messages } from './db-messages.js'
 import { Parts } from './db-parts.js'
 import { Sessions } from './db-sessions.js'
+import { Worksheets } from './db-worksheets.js'
 import { events, pushEvent } from './events.js'
 import { renderTemplate } from './extensions.js'
 import type { BlobStore } from './files.js'
@@ -39,11 +39,14 @@ import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
   ContentPayloadSchema,
   parse,
+  stringify,
   SummaryPartDataSchema,
   TextPartDataSchema,
   type ToolResult,
   WakePayloadSchema,
+  WorksheetProposedSchema,
 } from './json.js'
+import { Presets } from './kv-store.js'
 import { type LlmRegistry, resolveContextLimit } from './llm.js'
 import { logger } from './logger.js'
 import { factFromPersist, projectMessageFact } from './session-state.js'
@@ -112,6 +115,14 @@ export async function handleMailboxMessage(
   deps: AgentDeps,
   msg: { id: string; sessionName: string; type: string; payload?: unknown },
 ): Promise<void> {
+  // Worksheets bypass the work queue entirely: the consumer lands them
+  // idempotently in their own table + SSE. No mailbox row, no session wake,
+  // no model context — the tool ack already informed the model.
+  if (msg.type === 'worksheet_proposed') {
+    await landWorksheet(deps, msg.sessionName, msg.payload)
+    return
+  }
+
   const env = {
     // Defensive: a wake-style message without a producer id would fail the
     // uuid-typed PG key on '' and poison the consumer; mint one instead.
@@ -149,6 +160,56 @@ export async function handleMailboxMessage(
     e =>
       logger.error({ sid: env.session_name, err: String(e) }, 'turn crashed'),
   )
+}
+
+/**
+ * Land one worksheet proposal: idempotent insert + SSE. A foreign-key
+ * violation (session gone) discards silently like any other orphan mailbox
+ * message; malformed payloads are dropped with a warning — a bad proposal
+ * must never poison the consumer.
+ */
+async function landWorksheet(
+  deps: AgentDeps,
+  sessionName: string,
+  payload: unknown,
+): Promise<void> {
+  const parsed = parse(
+    WorksheetProposedSchema,
+    typeof payload === 'string' ? payload : stringify(payload),
+  )
+  if (parsed.isErr()) {
+    logger.warn(
+      { sid: sessionName },
+      'worksheet_proposed: malformed payload — discarding',
+    )
+    return
+  }
+  const w = parsed.value
+  const inserted = await Worksheets.insert(deps.db, {
+    id: w.worksheet_id,
+    sessionName,
+    extId: w.ext_id,
+    action: w.action,
+    args: stringify(w.args ?? {}),
+    title: w.title ?? '',
+    originCallId: w.origin_call_id ?? null,
+  })
+  if (inserted.isErr()) {
+    if (isForeignKeyViolation(inserted.error)) {
+      logger.warn({ sid: sessionName }, 'worksheet: session missing — discarding')
+      return
+    }
+    throw inserted.error
+  }
+  if (inserted.value !== null) {
+    pushEvent(deps.bus, sessionName, 'worksheet-proposed', {
+      worksheet_id: w.worksheet_id,
+      ext_id: w.ext_id,
+      action: w.action,
+      title: w.title ?? '',
+      args: w.args ?? {},
+    })
+  }
 }
 
 /**
@@ -522,7 +583,7 @@ async function prepare(
 
   const presetRow =
     session.preset !== ''
-      ? (await Presets.get(deps.db, session.preset)).unwrapOr(null)
+      ? (await Presets.get(deps.bus, session.preset)).unwrapOr(null)
       : null
   const presetTools = parse(z.array(z.string()), presetRow?.tools ?? '[]')
   const toolNames = presetTools.isOk() ? presetTools.value : []

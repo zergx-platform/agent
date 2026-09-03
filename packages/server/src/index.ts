@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import {
   type AgentDeps,
+  backfillKvFromPg,
   type Bus,
   calibrateMessageFacts,
   connectBus,
@@ -14,6 +15,7 @@ import {
   refreshModelsDev,
   runSessionTurn,
   watchMailboxWake,
+  watchWorksheetReconciler,
 } from '@zergx-agent/agent'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -128,6 +130,27 @@ async function main(): Promise<void> {
   // that predate the projection or whose KV writes were missed.
   void calibrateMessageFacts(bus, db)
 
+  // One-time PG → KV migration for presets / config / files-meta (marker-
+  // guarded per domain; a failure retries on the next boot).
+  void backfillKvFromPg(db, bus)
+
+  // Mailbox retention: consumed rows are audit-only, prune past the window.
+  const retentionDays = Number.parseInt(
+    process.env.ZERGX_MAILBOX_RETENTION_DAYS ?? '7',
+    10,
+  )
+  if (Number.isFinite(retentionDays) && retentionDays > 0) {
+    const sweep = async () => {
+      const r = await Mailbox.purgeConsumed(db, retentionDays)
+      if (r.isErr()) logger.warn({ err: r.error }, 'mailbox purge failed')
+      else if (r.value > 0)
+        logger.info({ n: r.value }, 'purged consumed mailbox rows')
+    }
+    void sweep()
+    const timer = setInterval(() => void sweep(), 60 * 60 * 1000)
+    timer.unref()
+  }
+
   const llm = new LlmRegistry(config)
   const files = makeBlobStore(bus)
   const deps: AgentDeps = {
@@ -167,6 +190,7 @@ async function main(): Promise<void> {
   // Watch every session's mailbox wake wildcard so this replica can claim and
   // run work for any session — the horizontal scale-out trigger.
   const stopWake = watchMailboxWake(deps)
+  const stopWorksheetReconciler = watchWorksheetReconciler(deps)
 
   // Populate the models.dev catalog cache once at startup (30min TTL); a
   // failing fetch is non-fatal — the catalog is a prefill convenience.

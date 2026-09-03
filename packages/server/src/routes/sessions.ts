@@ -599,11 +599,36 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
       return c.json({ ok: false, error: 'Session already exists' }, 409)
     }
 
+    // Optional fork point: a message on the parent's chain. Absent forks
+    // from the parent's current tip; present forks from that exact message
+    // (callers pin the fork to the moment they captured the id). The
+    // membership walk is the same hijack guard the undo route uses — a
+    // message from another session's chain must not become our fork base.
+    let forkTip: string | null = p.tip_id
+    if (b.message_id !== undefined) {
+      const target = await Messages.get(deps.db, b.message_id)
+      if (target.isErr()) return err500(c, target.error)
+      if (target.value === null) {
+        return c.json({ ok: false, error: 'fork message not found' }, 404)
+      }
+      if (p.tip_id !== null && p.tip_id !== '') {
+        const inChain = await Messages.isInChain(deps.db, p.tip_id, b.message_id)
+        if (inChain.isErr()) return err500(c, inChain.error)
+        if (!inChain.value) {
+          return c.json(
+            { ok: false, error: 'fork message not in this session chain' },
+            409,
+          )
+        }
+      }
+      forkTip = b.message_id
+    }
+
     const name = await Sessions.create(deps.db, {
       name: b.name,
       model: p.model,
       preset: p.preset,
-      tipId: p.tip_id,
+      tipId: forkTip,
     })
     if (name.isErr()) return err500(c, name.error)
     publishLifecycle(deps.bus, 'forked', {

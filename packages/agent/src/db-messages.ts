@@ -31,6 +31,7 @@ export interface ChainMessage extends MessageRow {
     name: string
     input: unknown
     result: string
+    metadata?: unknown
   }>
 }
 
@@ -277,23 +278,30 @@ async function toolPartsByMessages(
     byMsg.set(p.messageId, list)
   }
   for (const [messageId, ps] of byMsg) {
-    const results = new Map<string, string>()
+    const results = new Map<string, { content: string; metadata?: unknown }>()
     const tools: ChainMessage['tool_parts'] = []
     for (const p of ps) {
       if (p.type === 'tool_result') {
         const d = parse(ToolResultPartDataSchema, p.data)
-        if (d.isOk()) results.set(d.value.tool_use_id, d.value.content)
+        if (d.isOk()) {
+          results.set(d.value.tool_use_id, {
+            content: d.value.content,
+            metadata: d.value.metadata,
+          })
+        }
       }
     }
     for (const p of ps) {
       if (p.type !== 'tool') continue
       const d = parse(ToolPartDataSchema, p.data)
       if (!d.isOk()) continue
+      const r = results.get(d.value.id)
       tools.push({
         type: 'tool',
         name: d.value.name,
         input: d.value.input,
-        result: results.get(d.value.id) ?? '',
+        result: r?.content ?? '',
+        ...(r?.metadata !== undefined ? { metadata: r.metadata } : {}),
       })
     }
     if (tools.length > 0) out.set(messageId, tools)

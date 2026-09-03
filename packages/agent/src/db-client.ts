@@ -77,24 +77,25 @@ CREATE TABLE IF NOT EXISTS mailbox (
 );
 CREATE INDEX IF NOT EXISTS idx_mb_sess ON mailbox (session_name);
 
-CREATE TABLE IF NOT EXISTS presets (
+CREATE TABLE IF NOT EXISTS worksheets (
     id TEXT PRIMARY KEY,
-    system_prompt TEXT NOT NULL DEFAULT '',
-    system_prompt_i18n TEXT NOT NULL DEFAULT '{}',
-    tools TEXT NOT NULL DEFAULT '[]',
-    max_turns INTEGER NOT NULL DEFAULT 30
+    session_name TEXT NOT NULL REFERENCES sessions(name) ON DELETE CASCADE,
+    ext_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    args TEXT NOT NULL DEFAULT '{}',
+    title TEXT NOT NULL DEFAULT '',
+    origin_call_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (NOW()::text),
+    decided_at TEXT
 );
-ALTER TABLE presets ADD COLUMN IF NOT EXISTS system_prompt_i18n TEXT NOT NULL DEFAULT '{}';
-
-CREATE TABLE IF NOT EXISTS config (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL DEFAULT '{}'
-);
+CREATE INDEX IF NOT EXISTS idx_ws_session ON worksheets (session_name);
+CREATE INDEX IF NOT EXISTS idx_ws_status ON worksheets (status);
 
 CREATE TABLE IF NOT EXISTS providers (
     provider_id TEXT PRIMARY KEY,
     api_type TEXT NOT NULL DEFAULT 'openai-compatible',
-    base_url TEXT NOT NULL,
+    base_url TEXT NOT NULL DEFAULT '',
     api_key TEXT NOT NULL DEFAULT '',
     headers TEXT NOT NULL DEFAULT 'null',
     models TEXT NOT NULL DEFAULT '[]',
@@ -102,16 +103,10 @@ CREATE TABLE IF NOT EXISTS providers (
     updated_at TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS files (
-    code TEXT PRIMARY KEY,
-    sha256 TEXT NOT NULL DEFAULT '',
-    name TEXT NOT NULL DEFAULT '',
-    mime TEXT NOT NULL DEFAULT '',
-    size BIGINT NOT NULL DEFAULT 0,
-    uploader_session TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (NOW()::text)
-);
-CREATE INDEX IF NOT EXISTS idx_files_sha ON files (sha256);
+-- presets / config / files-meta moved to NATS KV buckets (abc-presets,
+-- abc-agent-config, abc-files-meta). The legacy PG tables are intentionally
+-- NOT dropped: existing deployments keep them as the one-time backfill
+-- source (see kv-backfill.ts); fresh installs never create them.
 `
 
 export function nowStr(): string {
@@ -186,7 +181,14 @@ async function migrateSchema(sql: Sql): Promise<void> {
 }
 
 async function importProviders(sql: Sql): Promise<void> {
-  const rows = await sql`SELECT value FROM config WHERE key = 'providers'`
+  // The legacy config table is no longer created (config moved to NATS KV);
+  // existing deployments may still hold the pre-split providers blob.
+  let rows: { value?: unknown }[] = []
+  try {
+    rows = await sql`SELECT value FROM config WHERE key = 'providers'`
+  } catch {
+    return
+  }
   const raw = rows[0]?.value
   const rawParsed = z.string().safeParse(raw)
   if (!rawParsed.success || rawParsed.data === '' || rawParsed.data === '{}') {
@@ -225,7 +227,11 @@ async function importProviders(sql: Sql): Promise<void> {
       ON CONFLICT (provider_id) DO NOTHING`
     imported++
   }
-  await sql`UPDATE config SET value = '{}' WHERE key = 'providers'`
+  try {
+    await sql`UPDATE config SET value = '{}' WHERE key = 'providers'`
+  } catch {
+    // legacy table absent on fresh installs
+  }
   if (imported > 0) {
     logger.info({ imported }, 'imported providers from config table')
   }
