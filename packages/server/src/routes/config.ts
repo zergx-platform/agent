@@ -2,10 +2,13 @@ import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   Config,
   discoverTools,
+  localizeSchema,
   Presets,
   Providers,
   parse,
+  pickDescription,
   renderTemplate,
+  resolveLocale,
 } from '@zergx-agent/agent'
 import { ConfigBodySchema, PresetBodySchema } from '@zergx-agent/schema'
 import { ResultAsync } from 'neverthrow'
@@ -224,6 +227,9 @@ const listToolsRoute = createRoute({
   method: 'get',
   path: '/tools',
   summary: 'Discover tools',
+  request: {
+    query: z.object({ locale: z.string().optional() }),
+  },
   responses: {
     200: {
       description: 'Tools',
@@ -393,13 +399,25 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listToolsRoute, async c => {
     const deps = c.get('deps')
     const tools = await discoverTools(deps.bus)
+    // Localize for the request — exact → primary-language → default. The
+    // agent's own turn uses session → KV config → env; the /tools surface has
+    // no session context, so it falls back to KV config → env and an optional
+    // `?locale=` query override. Tool-level and per-property descriptions are
+    // resolved; the non-standard `descriptions` keys are stripped so the
+    // consumer only sees standard JSON-Schema fields.
+    const configLocale = (await Config.get(deps.bus, 'locale')).unwrapOr(null)
+    const locale = resolveLocale(
+      c.req.query('locale'),
+      configLocale,
+      process.env.ZERGX_LOCALE ?? 'en',
+    )
     return c.json(
       {
         tools: tools.map(t => ({
           name: t.name,
-          description: t.description,
+          description: pickDescription(t.description, t.descriptions, locale),
           category: t.extId,
-          parameters: t.inputSchema ?? null,
+          parameters: localizeSchema(t.inputSchema ?? null, locale),
           configFields: null,
         })),
       },

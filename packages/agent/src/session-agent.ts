@@ -39,14 +39,14 @@ import { clearRun, getAbortController, interruptRun } from './interrupt.js'
 import {
   ContentPayloadSchema,
   parse,
-  stringify,
   SummaryPartDataSchema,
+  stringify,
   TextPartDataSchema,
   type ToolResult,
   WakePayloadSchema,
   WorksheetProposedSchema,
 } from './json.js'
-import { Presets } from './kv-store.js'
+import { Config, Presets } from './kv-store.js'
 import { type LlmRegistry, resolveContextLimit } from './llm.js'
 import { logger } from './logger.js'
 import { factFromPersist, projectMessageFact } from './session-state.js'
@@ -196,7 +196,10 @@ async function landWorksheet(
   })
   if (inserted.isErr()) {
     if (isForeignKeyViolation(inserted.error)) {
-      logger.warn({ sid: sessionName }, 'worksheet: session missing — discarding')
+      logger.warn(
+        { sid: sessionName },
+        'worksheet: session missing — discarding',
+      )
       return
     }
     throw inserted.error
@@ -589,9 +592,17 @@ async function prepare(
   const toolNames = presetTools.isOk() ? presetTools.value : []
   const whitelist = toolNames.length > 0 ? new Set(toolNames) : null
 
-  // Effective locale: session → config → env → "en". Used to localize tool
-  // descriptions and the system prompt, and projected as vars.agent.locale.
-  const locale = resolveLocale(session.locale, null, deps.config.locale)
+  // Effective locale: session → KV config (live) → env → "en". The KV read
+  // makes `PUT /api/v1/config {key:"locale"}` take effect on the very next
+  // turn (no restart), while per-session `PATCH /sessions/{id}/settings`
+  // {locale} still wins. Used to localize tool descriptions and the system
+  // prompt, and projected as vars.agent.locale.
+  const configLocale = (await Config.get(deps.bus, 'locale')).unwrapOr(null)
+  const locale = resolveLocale(
+    session.locale,
+    configLocale,
+    process.env.ZERGX_LOCALE ?? 'en',
+  )
 
   const discovered = await discoverToolsCached(deps.bus)
   const active =

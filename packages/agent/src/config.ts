@@ -24,8 +24,6 @@ export interface ServerConfig {
   filesStorage: string
   /** VLM model ref for image_read ("provider_id/model_id"). */
   imageReadModel: string
-  /** Default UI/agent locale (short BCP-47 tag, e.g. "zh" / "en"). */
-  locale: string
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -62,6 +60,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     ),
     filesStorage: or('FILE_STORAGE', 'nats'),
     imageReadModel: or('IMAGE_READ_MODEL', ''),
-    locale: or('ZERGX_LOCALE', 'en'),
   }
 }
