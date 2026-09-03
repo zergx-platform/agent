@@ -612,7 +612,11 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
         return c.json({ ok: false, error: 'fork message not found' }, 404)
       }
       if (p.tip_id !== null && p.tip_id !== '') {
-        const inChain = await Messages.isInChain(deps.db, p.tip_id, b.message_id)
+        const inChain = await Messages.isInChain(
+          deps.db,
+          p.tip_id,
+          b.message_id,
+        )
         if (inChain.isErr()) return err500(c, inChain.error)
         if (!inChain.value) {
           return c.json(
@@ -627,7 +631,10 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     const name = await Sessions.create(deps.db, {
       name: b.name,
       model: p.model,
-      preset: p.preset,
+      // Forked sessions default to the executor role, not the parent's preset
+      // (a main-branch orchestrator forking into a work branch becomes an
+      // executor). The caller may override via the fork body if desired.
+      preset: 'executor',
       tipId: forkTip,
     })
     if (name.isErr()) return err500(c, name.error)
@@ -662,7 +669,7 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     const created = await Sessions.create(deps.db, {
       name: b.name,
       model: p.model,
-      preset: p.preset,
+      preset: 'executor',
       tipId: p.tip_id,
     })
     if (created.isErr()) return err500(c, created.error)

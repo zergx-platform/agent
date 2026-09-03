@@ -5,6 +5,15 @@ import type { Db } from './db-client.js'
 import { nowStr, q } from './db-client.js'
 import { mailbox, sessions } from './db-schema.js'
 
+/**
+ * Default preset applied to every session when none is specified. Unified to
+ * `executor` (the work-branch role): a session is expected to read/modify the
+ * repo and raise merge requests. The main-branch orchestrator role is chosen
+ * by the caller when it creates `org:repo:main` (e.g. repo-extension) rather
+ * than by default.
+ */
+export const DEFAULT_PRESET = 'executor'
+
 type Row = typeof sessions.$inferSelect
 
 const toRow = (r: Row): SessionRow => ({
@@ -79,7 +88,7 @@ export const Sessions = {
         db.insert(sessions).values({
           name: input.name,
           model: input.model ?? '',
-          preset: input.preset ?? '',
+          preset: input.preset ?? DEFAULT_PRESET,
           tipId: input.tipId ?? null,
           createdAt: nowStr(),
           updatedAt: nowStr(),
