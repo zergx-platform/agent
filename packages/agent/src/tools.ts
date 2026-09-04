@@ -18,6 +18,88 @@ export const ToolManifestSchema = z.object({
   input_schema: z.record(z.string(), z.unknown()).optional(),
 })
 
+/** KV bucket that mirrors applied extension config values (per-extension). */
+export const EXT_CONFIG_KV_BUCKET = 'cfg'
+
+/**
+ * KV key for a global extension config value, mirroring the SDK's
+ * `kvKey(extId, 'global', '', name) => '${extId}.${name}'`. Session-scoped
+ * overrides would add an escaped segment and are not part of the global
+ * config surface surfaced here.
+ */
+function extConfigKey(extId: string, name: string): string {
+  return `${extId}.${name}`
+}
+
+/// Read a global extension config value from the `cfg` bucket. Returns
+/// `undefined` when unset. Handles the SDK envelope (`{r,v}`) and the
+/// pre-envelope bare-value fallback.
+async function readExtConfigValue(
+  bus: Bus,
+  extId: string,
+  name: string,
+): Promise<unknown> {
+  const raw = await bus.kvGet(EXT_CONFIG_KV_BUCKET, extConfigKey(extId, name))
+  if (raw === null || raw === undefined) return undefined
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed !== null && typeof parsed === 'object' && 'v' in parsed) {
+      return (parsed as { v: unknown }).v
+    }
+    return parsed
+  } catch {
+    return raw
+  }
+}
+
+/**
+ * Aggregate the per-extension config surface into `{ [toolName]: { [knob]:
+ * value } }`, keyed the way the UI reads it. Reads global values from the `cfg`
+ * bucket (the single source of truth for per-knob PUTs), so saving via
+ * `PUT /tool-config/{extId}/{name}` is immediately visible here.
+ */
+export async function toolConfigMap(
+  bus: Bus,
+): Promise<Record<string, Record<string, unknown>>> {
+  const discovered = await discoverToolsCached(bus)
+  const out: Record<string, Record<string, unknown>> = {}
+  for (const t of discovered) {
+    for (const c of t.extConfig ?? []) {
+      const v = await readExtConfigValue(bus, t.extId, c.name)
+      if (v !== undefined) {
+        const bucket = out[t.name] ?? {}
+        bucket[c.name] = v
+        out[t.name] = bucket
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Tools whose declared `requiredConfig` value is unset. Used to hard-disable
+ * them from the AI tool set (so the model cannot call a tool it cannot run)
+ * and keep the UI's "needs config" accurate. Keyed by qualified name. A tool
+ * that declares a required_config and finds it empty cannot run now, so it is
+ * blocked regardless of the config item's own flags.
+ */
+export async function toolsBlockedByMissingRequired(
+  bus: Bus,
+  discovered: DiscoveredTool[],
+): Promise<Set<string>> {
+  const blocked = new Set<string>()
+  for (const t of discovered) {
+    for (const c of t.requiredConfig ?? []) {
+      const v = await readExtConfigValue(bus, t.extId, c)
+      if (v === undefined || v === null || v === '') {
+        blocked.add(toolQualifiedName(discovered, t))
+        break
+      }
+    }
+  }
+  return blocked
+}
+
 export interface DiscoveredTool {
   /** Owning extension id — tool calls go to `tool.call.{extId}.{name}`. */
   extId: string
@@ -27,6 +109,8 @@ export interface DiscoveredTool {
   descriptions?: Record<string, string>
   /** JSON Schema object describing the tool's arguments. */
   inputSchema: Record<string, unknown>
+  /** Config names whose value this tool requires to run (may be shared). */
+  requiredConfig?: string[]
   /** Declared config knobs of the owning extension (extension-level). */
   extConfig?: {
     name: string
@@ -137,28 +221,37 @@ function toolToDiscovered(extId: string, t: ExtensionTool): DiscoveredTool {
     description: t.description,
     ...(t.descriptions !== undefined ? { descriptions: t.descriptions } : {}),
     inputSchema: t.input_schema ?? { type: 'object', properties: {} },
+    ...(t.required_config !== undefined
+      ? { requiredConfig: t.required_config }
+      : {}),
   }
 }
 
 /**
- * Attach the owning extension's declared config knobs to every tool it
- * exports, so the UI can render the right editor (model picker, enum, …).
- * Config is extension-level, but the agent surfaces it per tool for the
- * configured-tool surface.
+ * Attach the owning extension's declared config knobs to a tool, but ONLY the
+ * ones the tool declares it requires (`tool.requiredConfig`). A tool that
+ * declares no required config (or references one the extension did not
+ * declare) gets none. Config is extension-level; `requiredConfig` narrows it
+ * for the per-tool UI, so a config can be shared by several tools without
+ * being exposed everywhere.
  */
 function withExtConfig(
   t: DiscoveredTool,
   config?: ExtensionConfigItem[],
 ): DiscoveredTool {
   if (!config || config.length === 0) return t
-  const extConfig = config.map(c => ({
-    name: c.name,
-    type: c.type,
-    enum_values: c.enum_values ?? [],
-    default: c.default,
-    description: c.description,
-    scope: c.scope,
-  }))
+  const wanted = new Set(t.requiredConfig ?? [])
+  const extConfig = config
+    .filter(c => wanted.has(c.name))
+    .map(c => ({
+      name: c.name,
+      type: c.type,
+      enum_values: c.enum_values ?? [],
+      default: c.default,
+      description: c.description,
+      scope: c.scope,
+    }))
+  if (extConfig.length === 0) return t
   return {
     ...t,
     extConfig: extConfig as NonNullable<DiscoveredTool['extConfig']>,
@@ -178,6 +271,7 @@ export function buildAiTools(
   sessionId?: string,
   abortSignal?: AbortSignal,
   locale?: string,
+  blocked?: Set<string>,
 ): Record<string, Tool<Record<string, unknown>, ToolResult>> {
   const tools: Record<string, Tool<Record<string, unknown>, ToolResult>> = {}
   for (const t of discovered) {
@@ -186,6 +280,9 @@ export function buildAiTools(
     // AI-tool key by extension id while keeping the wire tool name intact.
     const aiName = toolQualifiedName(discovered, t)
     if (tools[aiName] !== undefined) continue
+    // Hard-disable tools whose required config is unset: the model must not be
+    // handed a tool it cannot run. Blocked names are qualified (aiName).
+    if (blocked?.has(aiName)) continue
     const description = locale
       ? pickDescription(t.description, t.descriptions, locale)
       : t.description

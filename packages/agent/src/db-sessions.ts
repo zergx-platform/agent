@@ -6,13 +6,11 @@ import { nowStr, q } from './db-client.js'
 import { mailbox, sessions } from './db-schema.js'
 
 /**
- * Default preset applied to every session when none is specified. Unified to
- * `executor` (the work-branch role): a session is expected to read/modify the
- * repo and raise merge requests. The main-branch orchestrator role is chosen
- * by the caller when it creates `org:repo:main` (e.g. repo-extension) rather
- * than by default.
+ * Default preset applied to every session when none is specified. `build`
+ * is the full-capability role (repo edit + sandbox + build/publish/deploy);
+ * the read-only `plan` and sandbox-only `explore` presets are opt-in.
  */
-export const DEFAULT_PRESET = 'executor'
+export const DEFAULT_PRESET = 'build'
 
 type Row = typeof sessions.$inferSelect
 

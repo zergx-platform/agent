@@ -31,9 +31,63 @@ function fakeBus(initial: KV = {}) {
 }
 
 describe('system preset set', () => {
-  it('defines the three roles', () => {
+  it('defines plan/explore/build', () => {
     const ids = SYSTEM_PRESETS.map(p => p.id)
-    expect(ids).toEqual(['orchestrator', 'executor', 'analyst'])
+    expect(ids).toEqual(['plan', 'explore', 'build'])
+  })
+
+  it('build preset includes full capability; plan/explore are restricted', () => {
+    const build = SYSTEM_PRESETS.find(p => p.id === 'build')!
+    const plan = SYSTEM_PRESETS.find(p => p.id === 'plan')!
+    const explore = SYSTEM_PRESETS.find(p => p.id === 'explore')!
+    const buildTools = JSON.parse(build.tools)
+    const planTools = JSON.parse(plan.tools)
+    const exploreTools = JSON.parse(explore.tools)
+    // build has repo writes + sandbox + build/deploy/publish + read-only searches
+    expect(buildTools).toContain('write')
+    expect(buildTools).toContain('git-rebase')
+    expect(buildTools).toContain('sandbox-run')
+    expect(buildTools).toContain('container-build')
+    expect(buildTools).toContain('package-publish')
+    expect(buildTools).toContain('container-deploy')
+    expect(buildTools).toContain('container-search')
+    expect(buildTools).toContain('service-list')
+    expect(buildTools).toContain('packages-search')
+    expect(buildTools).toContain('pull-git-repo')
+    // no helm / mr / worksheet in build
+    expect(
+      buildTools.some(
+        (t: string) =>
+          t.startsWith('helm') ||
+          t.startsWith('mr') ||
+          t === 'fork-bookmark' ||
+          t === 'delete-bookmark',
+      ),
+    ).toBe(false)
+    // plan has no writes/sandbox/build
+    expect(
+      planTools.some(
+        (t: string) =>
+          t.startsWith('sandbox') ||
+          t === 'write' ||
+          t === 'delete' ||
+          t === 'edit' ||
+          t.startsWith('container') ||
+          t.startsWith('package'),
+      ),
+    ).toBe(false)
+    // explore adds sandbox but still no writes/build
+    expect(exploreTools).toContain('sandbox-run')
+    expect(
+      exploreTools.some(
+        (t: string) =>
+          t === 'write' ||
+          t === 'delete' ||
+          t === 'edit' ||
+          t.startsWith('container') ||
+          t.startsWith('package'),
+      ),
+    ).toBe(false)
   })
 
   it('every system preset is bilingual and lists known tools', () => {
@@ -125,7 +179,7 @@ describe('system presets are immutable', () => {
     await Presets.seedDefaults(bus)
     const list = await Presets.list(bus)
     expect(list.isOk()).toBe(true)
-    const sys = list.value.find(p => p.id === 'orchestrator')
+    const sys = list.value.find(p => p.id === 'build')
     expect(sys?.is_system).toBe(true)
     await Presets.upsert(bus, {
       id: 'user1',
@@ -136,5 +190,42 @@ describe('system presets are immutable', () => {
     })
     const list2 = await Presets.list(bus)
     expect(list2.value.find(p => p.id === 'user1')?.is_system).toBe(false)
+  })
+})
+
+describe('retired system presets are cleaned on seed', () => {
+  it('removes retired ids (orchestrator/executor/analyst) from the bucket', async () => {
+    const { bus, kv } = fakeBus()
+    // Seed retired keys as if a previous preset-set existed.
+    for (const id of ['orchestrator', 'executor', 'analyst', 'my', 'plan']) {
+      const v =
+        id === 'my' || id === 'plan'
+          ? (SYSTEM_PRESETS.find(p => p.id === 'plan')?.tools ?? '[]')
+          : '[]'
+      await bus.kvPut(
+        BUCKET,
+        id,
+        JSON.stringify({
+          id,
+          system_prompt: 'x',
+          system_prompt_i18n: '{}',
+          tools: v,
+          max_turns: 3,
+        }),
+      )
+    }
+    // rebuild index
+    await bus.kvPut(
+      BUCKET,
+      '__ids__',
+      JSON.stringify(['orchestrator', 'executor', 'analyst', 'my', 'plan']),
+    )
+    await Presets.seedDefaults(bus)
+    // retired ids gone; user 'my' kept; system 'plan' retained
+    expect(await bus.kvGet(BUCKET, 'orchestrator')).toBeNull()
+    expect(await bus.kvGet(BUCKET, 'executor')).toBeNull()
+    expect(await bus.kvGet(BUCKET, 'analyst')).toBeNull()
+    expect(await bus.kvGet(BUCKET, 'my')).not.toBeNull()
+    expect(await bus.kvGet(BUCKET, 'plan')).not.toBeNull()
   })
 })

@@ -60,6 +60,7 @@ import {
   buildAiTools,
   discoverToolsCached,
   toolQualifiedName,
+  toolsBlockedByMissingRequired,
 } from './tools.js'
 
 export interface AgentDeps {
@@ -617,6 +618,15 @@ async function prepare(
     },
     'tools prepared for turn',
   )
+  // Hard-disable tools whose required config is unset: the model must not call
+  // a tool it cannot run. Reads the `cfg` bucket per turn (cheap, few knobs).
+  const blocked = await toolsBlockedByMissingRequired(deps.bus, active)
+  if (blocked.size > 0) {
+    logger.info(
+      { sid, blocked: [...blocked] },
+      'tools blocked (required config unset)',
+    )
+  }
   const tools = buildAiTools(
     active,
     deps.bus,
@@ -624,6 +634,7 @@ async function prepare(
     sid,
     abortSignal,
     locale,
+    blocked,
   )
 
   // Session-level settings (PATCH /sessions/{id}/settings) override the

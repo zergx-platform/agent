@@ -10,6 +10,7 @@ import {
   pickDescription,
   renderTemplate,
   resolveLocale,
+  toolConfigMap,
 } from '@zergx-agent/agent'
 import { ConfigBodySchema, PresetBodySchema } from '@zergx-agent/schema'
 import { ResultAsync } from 'neverthrow'
@@ -438,11 +439,11 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
       : c.json({ ok: true }, 200)
   })
   .openapi(getToolConfigRoute, async c => {
-    const { bus } = c.get('deps')
-    const r = await Config.get(bus, 'tool_config')
-    if (r.isErr()) return c.json({ ok: false, error: r.error }, 500)
-    const value =
-      r.value === null ? {} : parse(z.unknown(), r.value).unwrapOr({})
+    const deps = c.get('deps')
+    // Aggregate from the `cfg` KV bucket (the store backing per-knob PUTs),
+    // so a saved value is immediately visible here and the UI's badge/seed
+    // reflect the real applied config.
+    const value = await toolConfigMap(deps.bus)
     return c.json(value, 200)
   })
   .openapi(putToolConfigRoute, async c => {
@@ -502,7 +503,16 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
           category: t.extId,
           parameters: localizeSchema(t.inputSchema ?? null, locale),
           configFields: null,
-          config: t.extConfig ?? null,
+          config:
+            (t.extConfig ?? []).map(c => ({
+              name: c.name,
+              type: c.type,
+              enum_values: c.enum_values ?? [],
+              default: c.default,
+              description: c.description,
+              scope: c.scope ?? 'global',
+            })) || null,
+          required_config: t.requiredConfig ?? [],
         })),
       },
       200,

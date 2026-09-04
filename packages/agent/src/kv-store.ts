@@ -2,7 +2,11 @@ import type { PresetRow } from '@zergx-agent/schema'
 import { errAsync, ResultAsync } from 'neverthrow'
 import type { Bus } from './bus.js'
 import { BUCKET_CONFIG, BUCKET_PRESETS } from './bus.js'
-import { isSystemPreset, SYSTEM_PRESETS } from './default-presets.js'
+import {
+  isRetiredSystemPreset,
+  isSystemPreset,
+  SYSTEM_PRESETS,
+} from './default-presets.js'
 
 /** No-expiry TTL for durable KV entries. */
 const NO_TTL = 0
@@ -171,6 +175,17 @@ export const Presets = {
           )
           if (created !== null) {
             await addToPresetIndex(bus, d.id)
+          }
+        }
+        // Clean retired system-preset ids that are no longer in SYSTEM_PRESETS
+        // (e.g. after a preset-set change). Done in the same bootstrap pass so
+        // stale system keys never linger as editable user presets.
+        const ids = await readPresetIndex(bus)
+        for (const id of ids) {
+          if (isSystemPreset(id)) continue
+          if (isRetiredSystemPreset(id)) {
+            await bus.kvDelete(BUCKET_PRESETS, id)
+            await removeFromPresetIndex(bus, id)
           }
         }
       })(),
