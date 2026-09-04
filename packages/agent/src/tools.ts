@@ -119,6 +119,7 @@ export interface DiscoveredTool {
     default?: unknown
     description?: string
     scope?: string
+    required?: boolean
   }[]
 }
 
@@ -250,6 +251,7 @@ function withExtConfig(
       default: c.default,
       description: c.description,
       scope: c.scope,
+      ...(c.required !== undefined ? { required: c.required } : {}),
     }))
   if (extConfig.length === 0) return t
   return {
