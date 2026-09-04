@@ -511,7 +511,6 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
               default: c.default,
               description: c.description,
               scope: c.scope ?? 'global',
-              ...(c.required !== undefined ? { required: c.required } : {}),
             })) || null,
           required_config: t.requiredConfig ?? [],
         })),
