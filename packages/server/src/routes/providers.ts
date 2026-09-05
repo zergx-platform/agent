@@ -8,17 +8,12 @@ import {
 } from '@zergx-agent/agent'
 import { ProviderBodySchema, ProviderTestBodySchema } from '@zergx-agent/schema'
 import { generateText } from 'ai'
-import { err, ok, ResultAsync } from 'neverthrow'
+import { ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
 
 const HeadersRecordSchema = z.record(z.string(), z.unknown())
 const ModelsArraySchema = z.array(z.string())
-
-/** OpenAI-compatible `GET /models` envelope; `data` may be absent/empty. */
-const ProviderModelsResponseSchema = z.object({
-  data: z.array(z.unknown()).optional(),
-})
 
 const ErrorSchema = z.object({ ok: z.boolean(), error: z.string() })
 
@@ -129,7 +124,7 @@ const deleteProviderRoute = createRoute({
 const testProviderRoute = createRoute({
   method: 'post',
   path: '/providers/test',
-  summary: 'Test a provider (fetch /models)',
+  summary: 'Test a provider by generating text with a model',
   request: {
     body: {
       content: { 'application/json': { schema: ProviderTestBodySchema } },
@@ -200,66 +195,37 @@ export const providerRoutes = new OpenAPIHono<AppEnv>()
   .openapi(testProviderRoute, async c => {
     const b = c.req.valid('json')
 
-    // With a `model` present, prove the provider can actually generate text:
-    // resolve it against the registered providers (or the supplied creds) and
-    // do a single lightweight chat completion. This catches providers that
-    // only expose POST /chat/completions (no GET /models) and confirm the
-    // model is usable.
-    if (b.model !== undefined && b.model !== '') {
-      const creds = {
-        apiType: b.api_type,
-        baseUrl: b.base_url,
-        apiKey: b.api_key ?? '',
-        headers: {},
-      }
-      const built = buildModelForApiType(creds, b.model)
-      if (built.isErr()) {
-        return c.json({ ok: false, error: built.error }, 200)
-      }
-      const gen = await ResultAsync.fromPromise(
-        generateText({
-          model: built.value,
-          prompt: 'hi',
-          maxOutputTokens: 8,
-        }),
-        e => `provider test: generation failed: ${String(e)}`,
+    // Testing requires a model: prove the provider (via its api_type's SDK)
+    // can actually generate text with a single lightweight completion. This
+    // catches providers that only expose POST /chat/completions (no GET
+    // /models) and confirms the chosen model is usable.
+    if (b.model === undefined || b.model === '') {
+      return c.json(
+        { ok: false, error: 'select a model to test the provider' },
+        200,
       )
-      if (gen.isErr()) {
-        return c.json({ ok: false, error: gen.error }, 200)
-      }
-      return c.json({ ok: true, model: b.model, text: gen.value.text }, 200)
     }
 
-    // No model: legacy behavior — probe GET /models for reachability.
-    const url = `${b.base_url.replace(/\/$/, '')}/models`
-    const result = await ResultAsync.fromPromise(
-      fetch(url, {
-        headers:
-          b.api_key !== undefined && b.api_key !== ''
-            ? { authorization: `Bearer ${b.api_key}` }
-            : {},
-        signal: AbortSignal.timeout(10_000),
+    const creds = {
+      apiType: b.api_type,
+      baseUrl: b.base_url,
+      apiKey: b.api_key ?? '',
+      headers: {},
+    }
+    const built = buildModelForApiType(creds, b.model)
+    if (built.isErr()) {
+      return c.json({ ok: false, error: built.error }, 200)
+    }
+    const gen = await ResultAsync.fromPromise(
+      generateText({
+        model: built.value,
+        prompt: 'hi',
+        maxOutputTokens: 8,
       }),
-      () => 'provider test: network error',
+      e => `provider test: generation failed: ${String(e)}`,
     )
-    if (result.isErr()) {
-      return c.json({ ok: false, error: result.error }, 200)
+    if (gen.isErr()) {
+      return c.json({ ok: false, error: gen.error }, 200)
     }
-    const res = result.value
-    if (!res.ok) {
-      return c.json({ ok: false, error: `HTTP ${res.status}` }, 200)
-    }
-    const body = await ResultAsync.fromPromise(
-      res.json(),
-      () => 'provider test: invalid json',
-    ).andThen(raw => {
-      const parsed = ProviderModelsResponseSchema.safeParse(raw)
-      return parsed.success
-        ? ok(parsed.data)
-        : err('provider test: unexpected /models response shape')
-    })
-    if (body.isErr()) {
-      return c.json({ ok: false, error: body.error }, 200)
-    }
-    return c.json({ ok: true, models: body.value.data ?? null }, 200)
+    return c.json({ ok: true, model: b.model, text: gen.value.text }, 200)
   })
