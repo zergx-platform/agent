@@ -10,7 +10,7 @@ export interface ServerConfig {
   /** Discovery timeout for extension/tool NATS broadcasts (ms). */
   extensionDiscoverMs: number
   toolTimeoutMs: number
-  /** Default LLM when no registered provider advertises the session model. */
+  /** LLM fallback when a session model is unset AND the operator configured an env default. Empty when none is set; sessions then resolve from registered providers only. */
   llmApiType: string
   llmBaseUrl: string
   llmApiKey: string
@@ -44,13 +44,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     ),
     toolTimeoutMs:
       Number.parseInt(or('ZERGX_TOOL_TIMEOUT_SECS', '600'), 10) * 1000,
-    llmApiType: or('ZERGX_LLM_API_TYPE', 'openai-compatible'),
-    llmBaseUrl: or(
-      'ZERGX_LLM_BASE_URL',
-      'http://tal-openai-proxy.develop.svc.cluster.local:4000/v1',
-    ),
+    llmApiType: or('ZERGX_LLM_API_TYPE', ''),
+    llmBaseUrl: or('ZERGX_LLM_BASE_URL', ''),
     llmApiKey: or('ZERGX_LLM_API_KEY', ''),
-    llmModel: or('ZERGX_LLM_MODEL', 'deepseek-v4-pro'),
+    llmModel: or('ZERGX_LLM_MODEL', ''),
     defaultMaxTurns: Number.parseInt(or('ZERGX_DEFAULT_MAX_TURNS', '25'), 10),
     defaultTemperature: Number.parseFloat(or('ZERGX_LLM_TEMPERATURE', '0')),
     defaultMaxTokens: Number.parseInt(or('ZERGX_LLM_MAX_TOKENS', '32768'), 10),

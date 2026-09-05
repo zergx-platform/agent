@@ -177,6 +177,16 @@ async function migrateSchema(sql: Sql): Promise<void> {
     -- Retired: read/unread state moved to the platform (vars KV under its
     -- own extension id). The agent no longer stores or interprets it.
     ALTER TABLE sessions DROP COLUMN IF EXISTS last_read_at;
+    -- Default session preset is now the read-only 'plan' role. Backfill any
+    -- historical empty preset ('') to 'plan', and map retired role names
+    -- (orchestrator/executor/analyst were replaced by plan/explore/build) to
+    -- 'plan' so no session silently falls through with a missing preset
+    -- (which would open every tool). Idempotent: re-running is a no-op.
+    UPDATE sessions SET preset = 'plan' WHERE preset = '';
+    UPDATE sessions SET preset = 'plan' WHERE preset = 'orchestrator';
+    UPDATE sessions SET preset = 'plan' WHERE preset = 'executor';
+    UPDATE sessions SET preset = 'plan' WHERE preset = 'analyst';
+    ALTER TABLE sessions ALTER COLUMN preset SET DEFAULT 'plan';
   `)
 }
 

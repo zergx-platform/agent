@@ -14,6 +14,7 @@ import { parse } from './json.js'
 import { logger } from './logger.js'
 
 const HeadersSchema = z.record(z.string(), z.string())
+const StringArraySchema = z.array(z.string())
 
 export interface ProviderCredentials {
   apiType: string
@@ -169,10 +170,24 @@ export class LlmRegistry {
     db: Db,
     modelId: string,
   ): Promise<Result<ResolvedModel, string>> {
+    // No explicit session model: prefer the env-configured default when the
+    // operator set one; otherwise fall through to the first registered
+    // provider's model (never a hardcoded/synthetic default provider).
     const id = modelId === '' ? this.config.llmModel : modelId
     const rows = await Providers.list(db)
     if (rows.isErr()) return err(rows.error)
-    return this.resolveRows(rows.value, id)
+    if (id !== '') return this.resolveRows(rows.value, id)
+    if (this.config.llmModel !== '') return this.resolveRows(rows.value, id)
+    // Model unset AND no env default: use the first registered provider model.
+    for (const p of rows.value) {
+      const arr = parse(StringArraySchema, p.models)
+      if (arr.isOk() && arr.value.length > 0) {
+        return this.resolveRows(rows.value, arr.value[0]!)
+      }
+    }
+    return err(
+      'no model selected — register a provider or pick a model',
+    )
   }
 
   /** Pure resolution over a provider snapshot (unit-testable). */
@@ -199,6 +214,20 @@ export class LlmRegistry {
       logger.warn(
         { provider: hit.provider_id, err: built.error },
         'provider unusable, falling back',
+      )
+    }
+    // No registered provider advertises the session model. Only fall back to
+    // the env-configured LLM when an operator explicitly supplies one; with no
+    // configured provider/model (the empty defaults) we must NOT invent a
+    // default provider — fail loudly instead so the user configures one.
+    if (
+      this.config.llmApiType === '' &&
+      this.config.llmBaseUrl === '' &&
+      this.config.llmApiKey === '' &&
+      this.config.llmModel === ''
+    ) {
+      return err(
+        `no provider configured for model '${modelId}' — register a provider or set ZERGX_LLM_*`,
       )
     }
     const fallback = buildModelForApiType(

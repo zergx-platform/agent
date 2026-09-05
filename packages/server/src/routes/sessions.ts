@@ -3,6 +3,7 @@ import { $, createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
   appendSessionId,
   compactSession,
+  DEFAULT_PRESET,
   deleteSessionIds,
   fireAndForget,
   interruptRun,
@@ -631,10 +632,15 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     const name = await Sessions.create(deps.db, {
       name: b.name,
       model: p.model,
-      // Forked sessions default to the executor role, not the parent's preset
-      // (a main-branch orchestrator forking into a work branch becomes an
-      // executor). The caller may override via the fork body if desired.
-      preset: 'executor',
+      // Manual fork/rename inherits the parent's full config (model, preset,
+      // system_prompt, max_turns, locale) so it behaves identically. ONLY the
+      // repo-extension `fork-bookmark` worksheet overrides preset to 'build'
+      // (a work-branch sub-agent must edit/build); it passes explicit `preset`
+      // in the fork body, which wins here.
+      preset: b.preset ?? (p.preset !== '' ? p.preset : DEFAULT_PRESET),
+      systemPrompt: p.system_prompt,
+      maxTurns: p.max_turns,
+      locale: p.locale,
       tipId: forkTip,
     })
     if (name.isErr()) return err500(c, name.error)
@@ -666,10 +672,14 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
 
     // rename = fork (copy tip) into the new name + delete the old name.
     // Messages are shared COW; deleting the old session leaves history intact.
+    // Rename preserves the parent's full config, same as a manual fork.
     const created = await Sessions.create(deps.db, {
       name: b.name,
       model: p.model,
-      preset: 'executor',
+      preset: p.preset !== '' ? p.preset : DEFAULT_PRESET,
+      systemPrompt: p.system_prompt,
+      maxTurns: p.max_turns,
+      locale: p.locale,
       tipId: p.tip_id,
     })
     if (created.isErr()) return err500(c, created.error)

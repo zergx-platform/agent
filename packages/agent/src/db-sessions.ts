@@ -6,11 +6,11 @@ import { nowStr, q } from './db-client.js'
 import { mailbox, sessions } from './db-schema.js'
 
 /**
- * Default preset applied to every session when none is specified. `build`
- * is the full-capability role (repo edit + sandbox + build/publish/deploy);
- * the read-only `plan` and sandbox-only `explore` presets are opt-in.
+ * Default preset applied to every session when none is specified. `plan`
+ * is the read-only role (repo inspect + session analysis, no side effects);
+ * the sandbox-only `explore` and full-capability `build` presets are opt-in.
  */
-export const DEFAULT_PRESET = 'build'
+export const DEFAULT_PRESET = 'plan'
 
 type Row = typeof sessions.$inferSelect
 
@@ -79,6 +79,9 @@ export const Sessions = {
       model?: string | undefined
       preset?: string | undefined
       tipId?: string | null | undefined
+      systemPrompt?: string | undefined
+      maxTurns?: number | undefined
+      locale?: string | undefined
     },
   ): ResultAsync<string, string> {
     return q(
@@ -88,6 +91,9 @@ export const Sessions = {
           model: input.model ?? '',
           preset: input.preset ?? DEFAULT_PRESET,
           tipId: input.tipId ?? null,
+          systemPrompt: input.systemPrompt ?? '',
+          maxTurns: input.maxTurns ?? 0,
+          locale: input.locale ?? '',
           createdAt: nowStr(),
           updatedAt: nowStr(),
         }),

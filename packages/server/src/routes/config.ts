@@ -527,8 +527,12 @@ export const configRoutes = new OpenAPIHono<AppEnv>()
       const arr = parse(ModelsArraySchema, p.models)
       if (arr.isOk()) models.push(...arr.value)
     }
-    if (!models.includes(llm.defaultModelId()))
-      models.unshift(llm.defaultModelId())
+    // Only surface an env-configured default model when the operator actually
+    // set one. With no configured provider/model, list exactly what the
+    // registered providers advertise — never a synthetic default.
+    const defaultModel = llm.defaultModelId()
+    if (defaultModel !== '' && !models.includes(defaultModel))
+      models.unshift(defaultModel)
     return c.json({ models: models.map(id => ({ id, name: id })) }, 200)
   })
   .openapi(zergxConfigRoute, async c => {

@@ -135,6 +135,13 @@ export const ForkBodySchema = z.object({
    * the id. Validated with a chain-membership walk (see the undo route).
    */
   message_id: z.string().optional(),
+  /**
+   * Explicit preset for the forked session. When omitted the fork inherits
+   * the parent's full config (model/preset/system_prompt/max_turns/locale).
+   * The repo-extension `fork-bookmark` worksheet always passes `build` so a
+   * work-branch sub-agent can edit/build; a manual fork inherits the parent.
+   */
+  preset: z.string().optional(),
 })
 export type ForkBody = z.infer<typeof ForkBodySchema>
 
