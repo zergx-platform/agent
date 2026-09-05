@@ -298,10 +298,22 @@ export function buildAiTools(
         return await raceFinal(
           new AbcAgent(bus)
             .callTool(sessionId ?? '', t.extId, t.name, toolCallId, args ?? {})
-            .then(r => ({
-              content: r.content ?? '',
-              metadata: r.data ?? null,
-            })),
+            .then(r => {
+              // A tool that failed surfaces its message in `r.error` (set by the
+              // extension server). Propagate it as a thrown error so the AI SDK
+              // emits a `tool-error` part and the agent surfaces the message,
+              // instead of silently mapping it to an empty content (which would
+              // render as a blank tool-result).
+              if (r.error != null) {
+                throw new Error(
+                  String((r.error as { message?: string }).message ?? r.error),
+                )
+              }
+              return {
+                content: r.content ?? '',
+                metadata: r.data ?? null,
+              }
+            }),
           timeoutMs,
           t.name,
           abortSignal,
