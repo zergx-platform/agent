@@ -49,10 +49,10 @@ describe('system preset set', () => {
     expect(buildTools).toContain('sandbox-run')
     expect(buildTools).toContain('container-build')
     expect(buildTools).toContain('package-publish')
-    expect(buildTools).toContain('container-deploy')
+    expect(buildTools).toContain('service-deploy')
     expect(buildTools).toContain('container-search')
     expect(buildTools).toContain('service-list')
-    expect(buildTools).toContain('packages-search')
+    expect(buildTools).toContain('package-search')
     expect(buildTools).toContain('pull-git-repo')
     // no helm / mr / worksheet in build
     expect(
