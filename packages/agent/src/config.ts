@@ -22,7 +22,7 @@ export interface ServerConfig {
   compactionContextTokens: number
   /** File storage backend: "nats" (JetStream object store). */
   filesStorage: string
-  /** VLM model ref for image_read ("provider_id/model_id"). */
+  /** VLM model ref for image-read ("provider_id/model_id"). */
   imageReadModel: string
 }
 

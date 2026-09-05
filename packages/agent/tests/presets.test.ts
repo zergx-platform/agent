@@ -117,28 +117,49 @@ describe('Presets.seedDefaults', () => {
     )
   })
 
-  it('is idempotent across repeated calls (never overwrites)', async () => {
+  it('refreshes a drifted system preset to the embedded version', async () => {
     const { bus, kv } = fakeBus()
     await Presets.seedDefaults(bus)
-    // Simulate a restore/another writer changing one system preset's raw value.
+    // Simulate a restore/another writer drifting one system preset's value
+    // (e.g. an old snake_case tool name from a previous KV seed).
     const edited = SYSTEM_PRESETS[0]
     await bus.kvPut(
       BUCKET,
       edited.id,
-      JSON.stringify({ ...JSON.parse(kv[edited.id]), systemPrompt: 'EDITED' }),
+      JSON.stringify({ ...JSON.parse(kv[edited.id]), system_prompt: 'EDITED' }),
     )
-    const before = await bus.kvGet(BUCKET, edited.id)
     await Presets.seedDefaults(bus)
     const after = await bus.kvGet(BUCKET, edited.id)
-    expect(after).toBe(before)
+    expect(after).toBe(JSON.stringify({
+      id: edited.id,
+      system_prompt: edited.systemPrompt,
+      system_prompt_i18n: edited.systemPromptI18n,
+      tools: edited.tools,
+      max_turns: edited.maxTurns,
+    }))
   })
 
-  it('skips ids whose create returned null (already present)', async () => {
+  it('leaves an already-correct system preset unchanged', async () => {
     const { bus, kv } = fakeBus()
-    const one = SYSTEM_PRESETS[0]
-    await bus.kvPut(BUCKET, one.id, JSON.stringify(one))
     await Presets.seedDefaults(bus)
-    expect(await bus.kvGet(BUCKET, one.id)).toBe(JSON.stringify(one))
+    const before = await bus.kvGet(BUCKET, SYSTEM_PRESETS[0].id)
+    await Presets.seedDefaults(bus)
+    expect(await bus.kvGet(BUCKET, SYSTEM_PRESETS[0].id)).toBe(before)
+  })
+
+  it('never touches user presets', async () => {
+    const { bus, kv } = fakeBus()
+    await Presets.seedDefaults(bus)
+    const mine = JSON.stringify({
+      id: 'my',
+      system_prompt: 's',
+      system_prompt_i18n: '{}',
+      tools: '[]',
+      max_turns: 5,
+    })
+    await bus.kvPut(BUCKET, 'my', mine)
+    await Presets.seedDefaults(bus)
+    expect(await bus.kvGet(BUCKET, 'my')).toBe(mine)
   })
 })
 

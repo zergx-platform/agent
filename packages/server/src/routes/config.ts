@@ -233,7 +233,7 @@ const putToolConfigRoute = createRoute({
 
 // Set an extension config knob by id (e.g. memory / vlm_model). Delivers the
 // validated change to the extension's config store (abc.config.<extId> + cfg
-// KV) so tools like image_read pick the model up immediately.
+// KV) so tools like image-read pick the model up immediately.
 const setExtensionConfigRoute = createRoute({
   method: 'put',
   path: '/tool-config/{extId}/{name}',

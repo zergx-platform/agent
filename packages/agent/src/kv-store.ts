@@ -158,23 +158,29 @@ export const Presets = {
   },
 
   /**
-   * Seed the immutable system presets at boot, create-if-absent. Every
-   * replica / restart calls this; `kvCreate` is atomic, so an existing key
-   * (seeded earlier, or a restore) is never overwritten — user state and
-   * edits to user presets are preserved. Idle on a fully-seeded bucket.
+   * Seed the immutable system presets at boot. System presets are refreshed
+   * whenever their content drifted from the embedded version (e.g. a tool-set
+   * or kebab-case tool-name change), so the KV bucket always matches the
+   * running agent. `kvCreate` is atomic: an existing key is created once, then
+   * a content comparison refreshes it. User presets are never touched — only
+   * keys whose id is a system preset are compared/updated.
    */
   seedDefaults(bus: Bus): ResultAsync<void, string> {
     return ra(
       (async () => {
         for (const d of SYSTEM_PRESETS) {
-          const created = await bus.kvCreate(
-            BUCKET_PRESETS,
-            d.id,
-            rowToJson(d),
-            NO_TTL,
-          )
+          const want = rowToJson(d)
+          const existing = await bus.kvGet(BUCKET_PRESETS, d.id)
+          const created =
+            existing === null
+              ? await bus.kvCreate(BUCKET_PRESETS, d.id, want, NO_TTL)
+              : null
           if (created !== null) {
             await addToPresetIndex(bus, d.id)
+          } else if (existing !== want) {
+            // Drifted system preset (recnamed/fixed tool names, kebab-case):
+            // refresh in place so the bucket mirrors the shipped preset.
+            await bus.kvPut(BUCKET_PRESETS, d.id, want, NO_TTL)
           }
         }
         // Clean retired system-preset ids that are no longer in SYSTEM_PRESETS
