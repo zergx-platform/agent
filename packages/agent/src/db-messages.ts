@@ -1,4 +1,4 @@
-import type { MessageRow } from '@zergx-agent/schema'
+import type { FilePartData, MessageRow } from '@zergx-agent/schema'
 import { eq, inArray } from 'drizzle-orm'
 import { err, ok, ResultAsync } from 'neverthrow'
 import { z } from 'zod'
@@ -6,6 +6,7 @@ import type { Db } from './db-client.js'
 import { nowStr, q, uuid } from './db-client.js'
 import { messages, parts } from './db-schema.js'
 import {
+  FilePartDataSchema,
   parse,
   SummaryPartDataSchema,
   TextPartDataSchema,
@@ -33,6 +34,9 @@ export interface ChainMessage extends MessageRow {
     result: string
     metadata?: unknown
   }>
+  /** Structured user file attachments (code/name/mime/size), rendered as
+   *  distinct attachment parts by the read API/UI. */
+  file_parts: FilePartData[]
 }
 
 export type MessageRole = 'user' | 'assistant' | 'event' | 'compaction'
@@ -116,10 +120,12 @@ export const Messages = {
       })
       const contentByMsg = await textContentByMessages(db, ids)
       const toolPartsByMsg = await toolPartsByMessages(db, ids)
+      const filePartsByMsg = await filePartsByMessages(db, ids)
       return ordered.map(m => ({
         ...m,
         content: contentByMsg.get(m.id) ?? '',
         tool_parts: toolPartsByMsg.get(m.id) ?? [],
+        file_parts: filePartsByMsg.get(m.id) ?? [],
       }))
     }, 'messages by ids')
   },
@@ -216,10 +222,12 @@ function hydrateChain(
     const ids = chainMsgs.map(m => m.id)
     const contentByMsg = await textContentByMessages(db, ids)
     const toolPartsByMsg = await toolPartsByMessages(db, ids)
+    const filePartsByMsg = await filePartsByMessages(db, ids)
     return chainMsgs.map(m => ({
       ...m,
       content: contentByMsg.get(m.id) ?? '',
       tool_parts: toolPartsByMsg.get(m.id) ?? [],
+      file_parts: filePartsByMsg.get(m.id) ?? [],
     }))
   }, 'hydrate message chain')
 }
@@ -229,6 +237,7 @@ const toChain = (r: z.infer<typeof ChainRowSchema>): ChainMessage => ({
   role: r.role,
   content: '',
   tool_parts: [],
+  file_parts: [],
   prev_id: r.prev_id,
   created_at: r.created_at,
 })
@@ -254,6 +263,30 @@ async function textContentByMessages(
     } else if (p.type === 'summary') {
       const d = parse(SummaryPartDataSchema, p.data)
       if (d.isOk()) out.set(p.messageId, d.value.summary)
+    }
+  }
+  return out
+}
+
+/** Message id → ordered `file` part data (attachment refs), in seq order. */
+async function filePartsByMessages(
+  db: Db,
+  ids: string[],
+): Promise<Map<string, FilePartData[]>> {
+  const out = new Map<string, FilePartData[]>()
+  if (ids.length === 0) return out
+  const rows = await db
+    .select()
+    .from(parts)
+    .where(inArray(parts.messageId, ids))
+    .orderBy(parts.messageId, parts.seq)
+  for (const p of rows) {
+    if (p.type !== 'file') continue
+    const d = parse(FilePartDataSchema, p.data)
+    if (d.isOk()) {
+      const list = out.get(p.messageId) ?? []
+      list.push(d.value)
+      out.set(p.messageId, list)
     }
   }
   return out

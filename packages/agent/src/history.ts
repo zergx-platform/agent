@@ -1,6 +1,7 @@
 import type { MessageRow, PartRow } from '@zergx-agent/schema'
 import type { ModelMessage } from 'ai'
 import {
+  FilePartDataSchema,
   parse,
   TextPartDataSchema,
   ToolPartDataSchema,
@@ -35,8 +36,11 @@ export function rebuildHistory(
 
   for (const m of rows) {
     if (m.role === 'user' || m.role === 'event') {
-      const text = textOf(byMessage.get(m.id) ?? [])
-      if (text !== '') out.push({ role: 'user', content: text })
+      const parts = byMessage.get(m.id) ?? []
+      const text = textOf(parts)
+      const fileText = fileRefsText(parts)
+      const content = [fileText, text].filter(Boolean).join('\n')
+      if (content !== '') out.push({ role: 'user', content })
       continue
     }
     if (m.role !== 'assistant') continue
@@ -119,4 +123,22 @@ function textOf(msgParts: PartRow[]): string {
     if (d.isOk()) text += d.value.text
   }
   return text
+}
+
+/** Render a message's `file` parts as attachment reference lines. */
+function fileRefsText(msgParts: PartRow[]): string {
+  let s = ''
+  for (const p of msgParts) {
+    if (p.type !== 'file') continue
+    const d = parse(FilePartDataSchema, p.data)
+    if (!d.isOk()) continue
+    const f = d.value
+    const name = f.name ?? f.code
+    const meta = [f.mime, f.size != null ? `${f.size} B` : null]
+      .filter(Boolean)
+      .join(' | ')
+    const ref = `[附件 ${name} | file:${f.code}` + (meta ? ` | ${meta}]` : ']')
+    s += (s === '' ? '' : '\n') + ref
+  }
+  return s
 }

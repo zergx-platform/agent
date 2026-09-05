@@ -123,8 +123,36 @@ export const CreateSessionBodySchema = z.object({
 })
 export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>
 
-export const PromptBodySchema = z.object({ prompt: z.string().min(1) })
+export const PromptBodySchema = z.object({
+  prompt: z.string(),
+  /** Structured attachments, persisted as their own `file` parts. */
+  attachments: z
+    .array(
+      z.object({
+        code: z.string(),
+        name: z.string().optional(),
+        mime: z.string().optional(),
+        size: z.number().int().optional(),
+      }),
+    )
+    .optional(),
+})
 export type PromptBody = z.infer<typeof PromptBodySchema>
+
+export interface FileAttachment {
+  code: string
+  name?: string
+  mime?: string
+  size?: number
+}
+
+/** Structured payload of a `file` part (user attachment ref). */
+export interface FilePartData {
+  code: string
+  name?: string | undefined
+  mime?: string | undefined
+  size?: number | undefined
+}
 
 export const ForkBodySchema = z.object({
   name: z.string().min(1),

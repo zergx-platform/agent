@@ -13,6 +13,8 @@ function msg(id: string, role: string): ChainMessage {
     tool_call_id: '',
     created_at: '',
     content: '',
+    tool_parts: [],
+    file_parts: [],
   }
 }
 

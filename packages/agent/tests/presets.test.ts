@@ -78,6 +78,9 @@ describe('system preset set', () => {
     ).toBe(false)
     // explore adds sandbox but still no writes/build
     expect(exploreTools).toContain('sandbox-run')
+    // explore must not port sandbox changes into the repo (the one sandbox
+    // tool that writes the repo — only build may).
+    expect(exploreTools.includes('sandbox-port')).toBe(false)
     expect(
       exploreTools.some(
         (t: string) =>

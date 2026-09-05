@@ -539,7 +539,9 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
   .openapi(promptRoute, async c => {
     const deps = c.get('deps')
     const { id } = c.req.valid('param')
-    const { prompt } = c.req.valid('json')
+    const b = c.req.valid('json')
+    const prompt = b.prompt
+    const attachments = b.attachments ?? []
 
     const session = await Sessions.get(deps.db, id)
     if (session.isErr()) return err500(c, session.error)
@@ -548,12 +550,25 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     }
 
     // Persist the user message first (chained onto the tip) so the turn loop
-    // never runs against a history missing the prompt.
+    // never runs against a history missing the prompt. Attachments are
+    // persisted as their OWN `file` parts (structured), then the text — so
+    // the reference is a distinct part, not padded into the prompt text.
     const tipRes = await Sessions.tip(deps.db, id)
     const tipId = tipRes.isErr() ? null : tipRes.value
     const insert = await Messages.insert(deps.db, 'user', tipId)
     if (insert.isErr()) return err500(c, insert.error)
-    await Parts.insert(deps.db, insert.value, 'text', 0, { text: prompt })
+    let seq = 0
+    for (const att of b.attachments ?? []) {
+      await Parts.insert(deps.db, insert.value, 'file', seq++, {
+        code: att.code,
+        name: att.name,
+        mime: att.mime,
+        size: att.size,
+      })
+    }
+    if (b.prompt !== '') {
+      await Parts.insert(deps.db, insert.value, 'text', seq++, { text: b.prompt })
+    }
     await Sessions.setTip(deps.db, id, insert.value)
 
     // Keep the cached context id list in sync so the turn's loadHistory does
@@ -568,7 +583,8 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     // writes the mailbox table directly.
     try {
       await new AbcAgent(deps.bus).publishMailbox(id, 'user_prompt', {
-        text: prompt,
+        text: b.prompt,
+        attachments: b.attachments ?? [],
       })
     } catch (e) {
       // Roll the tip back so a failed delivery does not leave a dangling

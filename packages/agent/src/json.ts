@@ -107,6 +107,20 @@ export const TextPartDataSchema = z.object({
 })
 export type TextPartData = z.infer<typeof TextPartDataSchema>
 
+/**
+ * A user-attached file reference, persisted as its OWN part type (`file`)
+ * so history and the UI can render it as a distinct attachment (not padded
+ * into the prompt text). `code` is the blob key (`file:<code>`), always a
+ * 16-char hex id minted by the file store.
+ */
+export const FilePartDataSchema = z.object({
+  code: z.string(),
+  name: z.string().optional(),
+  mime: z.string().optional(),
+  size: z.number().int().optional(),
+})
+export type FilePartData = z.infer<typeof FilePartDataSchema>
+
 export const SummaryPartDataSchema = z.object({
   summary: z.string(),
   /** First message id of the verbatim tail kept after this checkpoint. */
