@@ -5,6 +5,7 @@ import {
   compactSession,
   DEFAULT_PRESET,
   deleteSessionIds,
+  fileByCode,
   fireAndForget,
   interruptRun,
   Mailbox,
@@ -82,23 +83,31 @@ async function sseHandler(c: Context<AppEnv>): Promise<Response> {
     // boundary (status busy / turn-complete) and emit only the events after
     // the most recent boundary, which is exactly the still-streaming turn (or
     // nothing when idle).
-    const replay = await agent.replayEvents(sid)
-    let tailStart = -1
-    for (let i = replay.length - 1; i >= 0; i--) {
-      const e = replay[i]?.event
-      const p = (replay[i]?.params ?? {}) as { type?: string }
-      if (e === 'turn-complete' || (e === 'status' && p.type === 'busy')) {
-        tailStart = i
-        break
+    //
+    // BUT: an undone turn's events may still sit in the retained stream after
+    // the last boundary (undo moves the tip back without a new boundary).
+    // Replaying them resurrects a withdrawn message. So only replay when a
+    // turn is genuinely running (lease held) — an idle session (turn done or
+    // undone) has nothing to recover; GET /messages is authoritative.
+    if (await isSessionRunning(bus, sid)) {
+      const replay = await agent.replayEvents(sid)
+      let tailStart = -1
+      for (let i = replay.length - 1; i >= 0; i--) {
+        const e = replay[i]?.event
+        const p = (replay[i]?.params ?? {}) as { type?: string }
+        if (e === 'turn-complete' || (e === 'status' && p.type === 'busy')) {
+          tailStart = i
+          break
+        }
       }
-    }
-    if (tailStart >= 0) {
-      for (let i = tailStart; i < replay.length; i++) {
-        const raw = replay[i]
-        const v = EidEventSchema.safeParse(raw)
-        if (!v.success) continue
-        dedup.mark(v.data.eid)
-        await stream.writeSSE({ data: JSON.stringify(raw) })
+      if (tailStart >= 0) {
+        for (let i = tailStart; i < replay.length; i++) {
+          const raw = replay[i]
+          const v = EidEventSchema.safeParse(raw)
+          if (!v.success) continue
+          dedup.mark(v.data.eid)
+          await stream.writeSSE({ data: JSON.stringify(raw) })
+        }
       }
     }
     for await (const m of sub) {
@@ -540,8 +549,6 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     const deps = c.get('deps')
     const { id } = c.req.valid('param')
     const b = c.req.valid('json')
-    const prompt = b.prompt
-    const attachments = b.attachments ?? []
 
     const session = await Sessions.get(deps.db, id)
     if (session.isErr()) return err500(c, session.error)
@@ -559,15 +566,30 @@ const sessionOpenapi = new OpenAPIHono<AppEnv>()
     if (insert.isErr()) return err500(c, insert.error)
     let seq = 0
     for (const att of b.attachments ?? []) {
+      // Client only sends the code; backfill name/mime/size from the files KV
+      // so the persisted `file` part carries full metadata (old + new).
+      let name = att.name
+      let mime = att.mime
+      let size = att.size
+      if (name === undefined && mime === undefined && size === undefined) {
+        const rec = await fileByCode(deps.bus, att.code)
+        if (rec.isOk() && rec.value !== null) {
+          name ??= rec.value.name
+          mime ??= rec.value.mime
+          size ??= rec.value.size
+        }
+      }
       await Parts.insert(deps.db, insert.value, 'file', seq++, {
         code: att.code,
-        name: att.name,
-        mime: att.mime,
-        size: att.size,
+        name,
+        mime,
+        size,
       })
     }
     if (b.prompt !== '') {
-      await Parts.insert(deps.db, insert.value, 'text', seq++, { text: b.prompt })
+      await Parts.insert(deps.db, insert.value, 'text', seq++, {
+        text: b.prompt,
+      })
     }
     await Sessions.setTip(deps.db, id, insert.value)
 

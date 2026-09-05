@@ -8,6 +8,10 @@ const ErrorSchema = z.object({ ok: z.boolean(), error: z.string() })
 const contentPartSchema = z.union([
   z.object({ type: z.literal('text'), text: z.string() }),
   z.object({ type: z.literal('image'), image: z.unknown() }),
+  z.object({
+    type: z.literal('image_url'),
+    image_url: z.object({ url: z.string() }),
+  }),
 ])
 
 const messageSchema = z.object({
@@ -20,7 +24,7 @@ const chatCompletionsRoute = createRoute({
   path: '/llm/chat/completions',
   summary: 'Single-turn chat completion (OpenAI-compatible)',
   description:
-    'One-shot completion reusing the agent-provided providers. The `model` field carries the "provider_id/model_id" reference. `messages[].content` accepts an OpenAI-style array with `{type:"image",image:"<data-url>"}` parts for VLM calls. Returns OpenAI-compatible chat completion JSON. Exposed so extensions (e.g. memory-extension image-read) share the registered providers without duplicating base_url/api_key.',
+    'One-shot completion reusing the agent-provided providers. The `model` field carries the "provider_id/model_id" reference. `messages[].content` accepts an OpenAI-style array with `{type:"image_url",image_url:{url:"<data-url>"}}` (or legacy `{type:"image",image:"<data-url>"}`) parts for VLM calls. Returns OpenAI-compatible chat completion JSON. Exposed so extensions (e.g. memory-extension image-read) share the registered providers without duplicating base_url/api_key.',
   request: {
     body: {
       content: {
@@ -123,6 +127,11 @@ export const llmRoutes = new OpenAPIHono<AppEnv>().openapi(
       for (const part of m.content) {
         if (part.type === 'text')
           content.push({ type: 'text', text: part.text })
+        else if (part.type === 'image_url')
+          content.push({
+            type: 'image',
+            image: part.image_url.url,
+          })
         else
           content.push({
             type: 'image',
