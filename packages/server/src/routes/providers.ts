@@ -1,12 +1,13 @@
-import { Agent as AbcAgent } from '@abc-protocol/sdk'
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi'
 import {
+  buildModelForApiType,
   getModelsDev,
   Providers,
   parse,
   validateApiType,
 } from '@zergx-agent/agent'
 import { ProviderBodySchema, ProviderTestBodySchema } from '@zergx-agent/schema'
+import { generateText } from 'ai'
 import { err, ok, ResultAsync } from 'neverthrow'
 import { z } from 'zod'
 import type { AppEnv } from '../context.js'
@@ -198,6 +199,38 @@ export const providerRoutes = new OpenAPIHono<AppEnv>()
   })
   .openapi(testProviderRoute, async c => {
     const b = c.req.valid('json')
+
+    // With a `model` present, prove the provider can actually generate text:
+    // resolve it against the registered providers (or the supplied creds) and
+    // do a single lightweight chat completion. This catches providers that
+    // only expose POST /chat/completions (no GET /models) and confirm the
+    // model is usable.
+    if (b.model !== undefined && b.model !== '') {
+      const creds = {
+        apiType: b.api_type,
+        baseUrl: b.base_url,
+        apiKey: b.api_key ?? '',
+        headers: {},
+      }
+      const built = buildModelForApiType(creds, b.model)
+      if (built.isErr()) {
+        return c.json({ ok: false, error: built.error }, 200)
+      }
+      const gen = await ResultAsync.fromPromise(
+        generateText({
+          model: built.value,
+          prompt: 'hi',
+          maxOutputTokens: 8,
+        }),
+        e => `provider test: generation failed: ${String(e)}`,
+      )
+      if (gen.isErr()) {
+        return c.json({ ok: false, error: gen.error }, 200)
+      }
+      return c.json({ ok: true, model: b.model, text: gen.value.text }, 200)
+    }
+
+    // No model: legacy behavior — probe GET /models for reachability.
     const url = `${b.base_url.replace(/\/$/, '')}/models`
     const result = await ResultAsync.fromPromise(
       fetch(url, {
@@ -220,8 +253,6 @@ export const providerRoutes = new OpenAPIHono<AppEnv>()
       res.json(),
       () => 'provider test: invalid json',
     ).andThen(raw => {
-      // Validate the response envelope instead of casting it: an arbitrary
-      // provider's /models payload is untrusted input.
       const parsed = ProviderModelsResponseSchema.safeParse(raw)
       return parsed.success
         ? ok(parsed.data)

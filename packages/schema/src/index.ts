@@ -228,6 +228,9 @@ export const ProviderTestBodySchema = z.object({
   api_type: z.string(),
   base_url: z.string().url(),
   api_key: z.string().optional(),
+  /** When set, the test performs a real 1-turn text generation (proving the
+   * model works), instead of only probing `GET /models`. */
+  model: z.string().optional(),
 })
 export type ProviderTestBody = z.infer<typeof ProviderTestBodySchema>
 
